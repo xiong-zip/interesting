@@ -12,16 +12,17 @@
 | 🕸 剧情画布 | 基于 Vue Flow 的无限画布：剧情/角色/视频素材/热点四类节点，拖拽连线梳理剧情，2 秒防抖自动保存 |
 | 📝 脚本管理 | 手写 + AI 生成脚本统一管理，支持关联项目；保存 AI 脚本时**分镜自动上画布**（每个镜头一个节点，顺序连成故事线） |
 | 🤖 AI 脚本 | 智谱 GLM（glm-4-flash 等）生成完整分镜脚本；未配置 Key 时返回模拟内容保证流程可用 |
-| ⚙️ 后台管理 | GLM Key/模型配置、媒体目录设置、修改密码 |
+| ⚙️ 后台管理 | GLM Key/模型配置、媒体目录设置 |
 
 ## 快速开始
 
 ```bash
 npm install
+python -m pip install pyJianYingDraft imageio-ffmpeg   # 剪映草稿导出 + 视频封面抽帧
 npm run dev        # 同时启动后端(3001)与前端(5173)
 ```
 
-打开 http://localhost:5173 ，默认账号 **admin / admin123**（请登录后在后台管理修改密码）。
+打开 http://localhost:5173 即可使用，无需登录。
 
 ## 配置
 
@@ -29,7 +30,6 @@ npm run dev        # 同时启动后端(3001)与前端(5173)
 
 ```ini
 PORT=3001
-JWT_SECRET=change-me-in-production
 GLM_API_KEY=          # https://open.bigmodel.cn 获取，也可在后台管理页配置
 GLM_MODEL=glm-4-flash
 MEDIA_DIR=media       # 本地视频扫描目录
@@ -46,7 +46,6 @@ MEDIA_DIR=media       # 本地视频扫描目录
 
 - 前端：Vue 3 + Vite + Element Plus + Pinia + Vue Router + Vue Flow
 - 后端：Node.js + Express + better-sqlite3（零配置 SQLite，数据在 `data/`）
-- 认证：JWT（登录/热点外的接口均需 Token）
 
 ## 生产部署
 
@@ -54,3 +53,5 @@ MEDIA_DIR=media       # 本地视频扫描目录
 npm run build       # 构建前端到 dist/
 npm start           # Express 托管 dist 并提供 API，单端口运行
 ```
+
+后续升级项见 [docs/升级计划.md](docs/升级计划.md)。

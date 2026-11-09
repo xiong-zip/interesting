@@ -24,7 +24,7 @@
       </el-table-column>
       <el-table-column label="标题" min-width="320">
         <template #default="{ row }">
-          <a v-if="row.url" :href="row.url" target="_blank" class="title-link">{{ row.title }}</a>
+          <a v-if="row.url" :href="row.url" target="_blank" class="title-link" @click.prevent="openExternal(row)">{{ row.title }}</a>
           <span v-else>{{ row.title }}</span>
         </template>
       </el-table-column>
@@ -82,7 +82,11 @@ const degraded = ref(false)
 
 const styles = ['口语化、有网感', '专业干货', '幽默搞笑', '情感共鸣', '悬念反转']
 
-const filtered = computed(() => (platform.value ? items.value.filter((i) => i.platform === platform.value) : items.value))
+// 全部/单平台都按热度从高到低排序
+const filtered = computed(() => {
+  const list = platform.value ? items.value.filter((i) => i.platform === platform.value) : items.value
+  return [...list].sort((a, b) => (b.hot || 0) - (a.hot || 0))
+})
 
 async function load() {
   loading.value = true
@@ -102,6 +106,16 @@ async function refresh() {
     degraded.value = data.degraded
   } finally {
     loading.value = false
+  }
+}
+
+// 用系统默认浏览器打开（内嵌浏览器会拦截 target=_blank）
+async function openExternal(row) {
+  if (!row?.url) return
+  try {
+    await api.post('/hot/open', { url: row.url })
+  } catch {
+    window.open(row.url, '_blank')
   }
 }
 

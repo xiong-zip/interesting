@@ -1,0 +1,170 @@
+// 根据剧情画布生成剪映草稿的剪辑计划（供 HTTP 接口和 CLI 共用）
+const path = require('path')
+const fs = require('fs')
+const db = require('../db')
+const { parseLrcFile } = require('./lrc')
+
+// 剪映专业版草稿目录（可由设置项 jianying_draft_dir 或环境变量覆盖）
+function draftDir() {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'jianying_draft_dir'").get()
+  const dir =
+    row?.value ||
+    process.env.JIANYING_DRAFT_DIR ||
+    path.join(process.env.LOCALAPPDATA || '', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft')
+  return dir
+}
+
+// 沿连线把节点排成故事线；孤立节点按画布位置补到后面
+function orderNodes(nodes, edges) {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const next = new Map()
+  const indeg = new Map(nodes.map((n) => [n.id, 0]))
+  for (const e of edges || []) {
+    if (!byId.has(e.source) || !byId.has(e.target)) continue
+    if (!next.has(e.source)) next.set(e.source, [])
+    next.get(e.source).push(e.target)
+    indeg.set(e.target, (indeg.get(e.target) || 0) + 1)
+  }
+  const posKey = (n) => (n?.position?.x || 0) * 10000 + (n?.position?.y || 0)
+  const sortByPos = (a, b) => posKey(byId.get(a)) - posKey(byId.get(b))
+  const seen = new Set()
+  const ordered = []
+  const walk = (node) => {
+    if (!node || seen.has(node.id)) return
+    seen.add(node.id)
+    ordered.push(node)
+    for (const id of (next.get(node.id) || []).sort(sortByPos)) walk(byId.get(id))
+  }
+  nodes
+    .filter((n) => (indeg.get(n.id) || 0) === 0)
+    .sort((a, b) => posKey(a) - posKey(b))
+    .forEach(walk)
+  nodes.filter((n) => !seen.has(n.id)).sort((a, b) => posKey(a) - posKey(b)).forEach(walk)
+  return ordered
+}
+
+function stamp() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
+// 生成剪辑计划：clips 按故事线顺序，剧情节点文字作为紧随其后的视频片段字幕
+function buildPlan(project) {
+  const canvas = JSON.parse(project.canvas || '{}')
+  const nodes = canvas.nodes || []
+  const ordered = orderNodes(nodes, canvas.edges)
+
+  const clips = []
+  const skipped = []
+  let subtitles = []
+  let bgm = null
+
+  const pushClip = (data, edgeData) => {
+    const mediaId = data?.mediaId
+    const row = mediaId != null ? db.prepare('SELECT * FROM media_files WHERE id = ?').get(mediaId) : null
+    if (!row || !fs.existsSync(row.filepath)) {
+      skipped.push(data?.filename || `素材 ${mediaId}`)
+      return
+    }
+    clips.push({
+      path: row.filepath,
+      filename: row.filename,
+      orientation: row.orientation || '',
+      subtitles: subtitles.map((s) => ({ text: s.text, font: s.font || '' })),
+      inPoint: Number(data?.inPoint) || 0,
+      outPoint: Number(data?.outPoint) || null,
+      speed: Number(data?.speed) || 1,
+      volume: data?.volume != null ? Number(data.volume) : 1,
+      filter: data?.filter || '',
+      transition: edgeData?.transition || '',
+      transitionDuration: edgeData?.transitionDuration || null,
+    })
+    subtitles = []
+  }
+
+  const useMusic = (musicId, volume) => {
+    if (bgm) return
+    const music = musicId != null ? db.prepare('SELECT * FROM music_files WHERE id = ?').get(musicId) : null
+    if (music && fs.existsSync(music.path)) {
+      bgm = { path: music.path, volume: volume != null ? Number(volume) : 0.25, lyricPath: music.lyric_path || '' }
+    }
+  }
+
+  for (const node of ordered) {
+    if (node.type === 'video') {
+      // 该镜头之后的转场：取从该视频节点出发的第一条连线上的设置
+      pushClip(node.data, (canvas.edges || []).find((e) => e.source === node.id)?.data)
+    } else if (node.type === 'scene') {
+      const outEdge = (canvas.edges || []).find((e) => e.source === node.id)
+      const items = Array.isArray(node.data?.items) ? node.data.items : []
+      const lastVideoIndex = items.map((it) => it.kind).lastIndexOf('video')
+      items.forEach((it, index) => {
+        if (it.kind === 'video') pushClip(it, index === lastVideoIndex ? outEdge?.data : null)
+        else if (it.kind === 'audio') useMusic(it.musicId, it.volume)
+        else if (it.kind === 'subtitle') {
+          const text = String(it.text || '').trim()
+          if (text) subtitles.push({ text, font: it.font || '' })
+        }
+      })
+    } else if (node.type === 'subtitle') {
+      // 剧情节点只作为说明，不参与导出；只有字幕节点会写字幕
+      const text = String(node.data?.content || node.data?.title || '').trim()
+      if (text) subtitles.push({ text, font: node.data?.font || '' })
+    } else if (node.type === 'audio') {
+      useMusic(node.data?.musicId, node.data?.volume)
+    }
+  }
+
+  // 按素材比例决定草稿画布：多数素材是竖屏就用竖屏，避免横竖混剪画面奇怪
+  const DIMS = {
+    portrait: { width: 1080, height: 1920 },
+    landscape: { width: 1920, height: 1080 },
+    square: { width: 1080, height: 1080 },
+  }
+  const counts = { portrait: 0, landscape: 0, square: 0 }
+  for (const c of clips) {
+    if (counts[c.orientation] != null) counts[c.orientation]++
+  }
+  let orientation = 'portrait'
+  for (const key of ['portrait', 'landscape', 'square']) {
+    if (counts[key] > counts[orientation]) orientation = key
+  }
+  const dims = DIMS[orientation]
+  const mismatched = clips.filter((c) => c.orientation && c.orientation !== orientation).length
+
+  // 全局 BGM 兜底（画布没有音乐节点时使用）
+  if (!bgm) {
+    const globalBgm = db.prepare("SELECT value FROM settings WHERE key = 'bgm_path'").get()
+    if (globalBgm?.value && fs.existsSync(globalBgm.value)) {
+      const row = db.prepare('SELECT * FROM music_files WHERE path = ?').get(globalBgm.value)
+      bgm = { path: globalBgm.value, volume: 0.25, lyricPath: row?.lyric_path || '' }
+    }
+  }
+
+  // 歌词字幕轨：按 LRC 时间轴写入，受全局开关 use_bgm_lyric 控制（默认开）
+  let lyrics = []
+  const useLyricRow = db.prepare("SELECT value FROM settings WHERE key = 'use_bgm_lyric'").get()
+  const useLyric = useLyricRow ? useLyricRow.value !== '0' : true
+  if (bgm?.lyricPath && useLyric) {
+    lyrics = parseLrcFile(bgm.lyricPath)
+  }
+
+  return {
+    draftDir: draftDir(),
+    draftName: `${(project.name || '未命名项目').replace(/[\\/:*?"<>|]/g, '_')}-${stamp()}`,
+    width: dims.width,
+    height: dims.height,
+    orientation,
+    mismatched,
+    fps: 30,
+    bgmPath: bgm?.path || '',
+    bgmVolume: bgm?.volume ?? 0.25,
+    bgmLyric: bgm?.lyricPath ? path.basename(bgm.lyricPath) : '',
+    lyrics,
+    clips,
+    skipped,
+  }
+}
+
+module.exports = { buildPlan, draftDir }

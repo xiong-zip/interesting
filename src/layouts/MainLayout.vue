@@ -6,29 +6,18 @@
         <el-menu-item index="/dashboard"><el-icon><Monitor /></el-icon>工作台</el-menu-item>
         <el-menu-item index="/hot"><el-icon><TrendCharts /></el-icon>热点中心</el-menu-item>
         <el-menu-item index="/media"><el-icon><VideoCamera /></el-icon>媒体库</el-menu-item>
+        <el-menu-item index="/music"><el-icon><Headset /></el-icon>音乐库</el-menu-item>
         <el-menu-item index="/canvas"><el-icon><Grid /></el-icon>剧情画布</el-menu-item>
         <el-menu-item index="/scripts"><el-icon><Document /></el-icon>脚本管理</el-menu-item>
         <el-menu-item index="/admin"><el-icon><Setting /></el-icon>后台管理</el-menu-item>
       </el-menu>
-      <div class="aside-footer">
-        <el-button text type="danger" @click="logout">退出登录</el-button>
-      </div>
     </el-aside>
     <el-main class="main"><router-view /></el-main>
   </el-container>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
-import { Monitor, TrendCharts, VideoCamera, Grid, Document, Setting } from '@element-plus/icons-vue'
-import { useAuthStore } from '../stores/auth'
-
-const router = useRouter()
-const auth = useAuthStore()
-function logout() {
-  auth.logout()
-  router.push('/login')
-}
+import { Monitor, TrendCharts, VideoCamera, Headset, Grid, Document, Setting } from '@element-plus/icons-vue'
 </script>
 
 <style scoped>
@@ -49,9 +38,6 @@ function logout() {
 .menu {
   border-right: none;
   flex: 1;
-}
-.aside-footer {
-  padding: 12px 16px;
 }
 .main {
   overflow: auto;

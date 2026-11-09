@@ -4,9 +4,9 @@ const cors = require('cors')
 const path = require('path')
 const fs = require('fs')
 
-const { router: authRouter, authMiddleware } = require('./routes/auth')
 const hotRouter = require('./routes/hot')
 const mediaRouter = require('./routes/media')
+const musicRouter = require('./routes/music')
 const projectsRouter = require('./routes/projects')
 const scriptsRouter = require('./routes/scripts')
 const aiRouter = require('./routes/ai')
@@ -18,23 +18,22 @@ const PORT = process.env.PORT || 3001
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
-// 登录/热点开放，其余接口需要 JWT
-app.use('/api/auth', authRouter)
 app.use('/api/hot', hotRouter)
-app.use('/api/media', authMiddleware, mediaRouter)
-app.use('/api/projects', authMiddleware, projectsRouter)
-app.use('/api/scripts', authMiddleware, scriptsRouter)
-app.use('/api/ai', authMiddleware, aiRouter)
+app.use('/api/media', mediaRouter)
+app.use('/api/music', musicRouter)
+app.use('/api/projects', projectsRouter)
+app.use('/api/scripts', scriptsRouter)
+app.use('/api/ai', aiRouter)
 
 // 设置读写（后台管理）
-app.get('/api/settings', authMiddleware, (req, res) => {
+app.get('/api/settings', (req, res) => {
   const rows = db.prepare('SELECT key, value FROM settings').all()
   const settings = Object.fromEntries(rows.map((r) => [r.key, r.value]))
   // key 脱敏
   if (settings.glm_api_key) settings.glm_api_key = settings.glm_api_key.slice(0, 6) + '****'
   res.json(settings)
 })
-app.post('/api/settings', authMiddleware, (req, res) => {
+app.post('/api/settings', (req, res) => {
   const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
   const tx = db.transaction(() => {
     for (const [key, value] of Object.entries(req.body || {})) {

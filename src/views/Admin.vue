@@ -24,18 +24,23 @@
         <el-form-item label="扫描目录">
           <el-input v-model="settings.media_dir" placeholder="绝对路径，或相对项目根目录（默认 media）" />
         </el-form-item>
+        <el-form-item label="素材库目录">
+          <el-input v-model="settings.asset_dir" placeholder="从媒体库移动过来的文件存放位置（默认 assets）" />
+        </el-form-item>
+        <el-form-item label="音乐目录">
+          <el-input v-model="settings.music_dir" placeholder="绝对路径，或相对项目根目录（默认 music）" />
+        </el-form-item>
+        <el-form-item label="草稿字幕">
+          <el-select v-model="settings.draft_subtitles" style="width: 280px">
+            <el-option label="写入剧情文字" value="plot" />
+            <el-option label="不写入（用剪映智能字幕）" value="none" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="背景音乐">
+          <el-input v-model="settings.bgm_path" placeholder="mp3/wav 文件的绝对路径，留空则不加 BGM" />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="saveSettings">保存</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-card header="修改密码" style="margin-top: 16px">
-      <el-form label-width="120px">
-        <el-form-item label="原密码"><el-input v-model="pwd.oldPassword" type="password" show-password /></el-form-item>
-        <el-form-item label="新密码"><el-input v-model="pwd.newPassword" type="password" show-password /></el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="changePwd">修改密码</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -47,9 +52,8 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 
-const settings = ref({ glm_api_key: '', glm_model: 'glm-4-flash', media_dir: 'media' })
+const settings = ref({ glm_api_key: '', glm_model: 'glm-4-flash', media_dir: 'media', asset_dir: 'assets', music_dir: 'music', draft_subtitles: 'plot', bgm_path: '' })
 const testing = ref(false)
-const pwd = ref({ oldPassword: '', newPassword: '' })
 
 async function load() {
   const { data } = await api.get('/settings')
@@ -68,11 +72,6 @@ async function testGlm() {
   } finally {
     testing.value = false
   }
-}
-async function changePwd() {
-  await api.post('/auth/password', pwd.value)
-  ElMessage.success('密码已修改')
-  pwd.value = { oldPassword: '', newPassword: '' }
 }
 onMounted(load)
 </script>

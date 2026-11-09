@@ -1,14 +1,18 @@
 const express = require('express')
+const { spawn } = require('child_process')
 const router = express.Router()
 
 // 统一条目结构：{ platform, platformName, color, title, hot, url }
-// 60s API 支持的热榜端点（60s.viki.moe，开源：github.com/vikiboss/60s）
+// 直连各平台公开榜单接口，避免第三方聚合服务（如 60s.viki.moe）被限流
 const PLATFORMS = [
-  { key: 'weibo', name: '微博', color: '#ff6b35', path: 'weibo' },
-  { key: 'zhihu', name: '知乎', color: '#0084ff', path: 'zhihu' },
-  { key: 'douyin', name: '抖音', color: '#111111', path: 'douyin' },
-  { key: 'toutiao', name: '头条', color: '#f04142', path: 'toutiao' },
+  { key: 'weibo', name: '微博', color: '#ff6b35' },
+  { key: 'zhihu', name: '知乎', color: '#0084ff' },
+  { key: 'douyin', name: '抖音', color: '#111111' },
+  { key: 'toutiao', name: '头条', color: '#f04142' },
+  { key: 'bilibili', name: 'B站', color: '#fb7299' },
 ]
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 const TTL = 3 * 60 * 1000 // 数据保鲜期：超过则后台刷新
 const WARM_INTERVAL = 3 * 60 * 1000 // 后台预热周期
@@ -17,12 +21,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // 分平台缓存：失败的平台下次自动补抓，成功的数据保留
 const platformCache = Object.fromEntries(PLATFORMS.map((p) => [p.key, { at: 0, items: [] }]))
 
-async function fetchJson(url, timeout = 8000) {
+async function fetchJson(url, headers = {}, timeout = 8000) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
   try {
-    const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': UA, Accept: 'application/json,text/plain,*/*', ...headers } })
+    if (!resp.ok) {
+      const err = new Error(`HTTP ${resp.status}`)
+      err.status = resp.status
+      err.retryAfter = Number(resp.headers.get('retry-after')) || 0
+      throw err
+    }
     return await resp.json()
   } finally {
     clearTimeout(timer)
@@ -42,22 +51,63 @@ function parseHot(it) {
   return m3 ? Number(m3[1]) : 0
 }
 
-// 抓取单个平台（429 退避重试一次）
+// 各平台适配器：抓取并统一成 { title, hot, url }
+const PROVIDERS = {
+  weibo: async () => {
+    const data = await fetchJson('https://weibo.com/ajax/side/hotSearch', { Referer: 'https://weibo.com/' })
+    return (data?.data?.realtime || [])
+      .filter((it) => it.word && !it.is_ad)
+      .map((it) => ({
+        title: it.word,
+        hot: Number(it.num) || parseHot(it),
+        url: `https://s.weibo.com/weibo?q=${encodeURIComponent(`#${it.word}#`)}`,
+      }))
+  },
+  zhihu: async () => {
+    const data = await fetchJson('https://api.zhihu.com/topstory/hot-list?limit=30', { Referer: 'https://www.zhihu.com/' })
+    return (data?.data || []).map((it) => ({
+      title: it.target?.title || '',
+      hot: parseHot({ hot_desc: it.detail_text }),
+      url: it.target?.id ? `https://www.zhihu.com/question/${it.target.id}` : '',
+    }))
+  },
+  douyin: async () => {
+    const data = await fetchJson('https://www.iesdouyin.com/web/api/v2/hotsearch/billboard/word/', { Referer: 'https://www.douyin.com/' })
+    return (data?.word_list || []).map((it) => ({
+      title: it.word || '',
+      hot: Number(it.hot_value) || 0,
+      url: `https://www.douyin.com/search/${encodeURIComponent(it.word || '')}`,
+    }))
+  },
+  toutiao: async () => {
+    const data = await fetchJson('https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc')
+    return (data?.data || []).map((it) => ({
+      title: it.Title || '',
+      hot: Number(it.HotValue) || 0,
+      url: it.Url || '',
+    }))
+  },
+  bilibili: async () => {
+    const data = await fetchJson('https://api.bilibili.com/x/web-interface/search/square?limit=30', { Referer: 'https://www.bilibili.com/' })
+    return (data?.data?.trending?.list || []).map((it) => ({
+      title: it.keyword || it.show_name || '',
+      hot: Number(it.heat_score) || 0,
+      url: `https://search.bilibili.com/all?keyword=${encodeURIComponent(it.keyword || '')}`,
+    }))
+  },
+}
+
+// 抓取单个平台（429 按 retry-after 退避重试一次，其他错误快速重试）
 async function fetchPlatform(p) {
+  let wait = 0
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      if (attempt > 0) await sleep(8000)
-      const data = await fetchJson(`https://60s.viki.moe/v2/${p.path}`)
-      if (data.code !== 200 || !Array.isArray(data.data)) throw new Error(data.message || `code ${data.code}`)
-      return data.data.map((it) => ({
-        platform: p.key,
-        platformName: p.name,
-        color: p.color,
-        title: it.title || it.name || '',
-        hot: parseHot(it),
-        url: it.link || it.url || '',
-      }))
+      if (attempt > 0) await sleep(wait || 1500)
+      const list = (await PROVIDERS[p.key]()).filter((it) => it.title)
+      if (list.length === 0) throw new Error('榜单为空')
+      return list.map((it) => ({ platform: p.key, platformName: p.name, color: p.color, ...it }))
     } catch (e) {
+      wait = e.retryAfter ? Math.min(e.retryAfter, 5) * 1000 : 1500
       if (attempt === 1) throw e
     }
   }
@@ -113,8 +163,8 @@ function snapshot() {
 router.get('/list', async (req, res) => {
   const total = PLATFORMS.reduce((n, p) => n + platformCache[p.key].items.length, 0)
   if (total === 0) {
-    // 冷启动首个请求：等预热完成（仅此一次）
-    await warm()
+    // 冷启动：最多等 1.5s，抓不到就立即降级返回模拟数据（预热继续在后台跑）
+    await Promise.race([warm(), sleep(1500)])
   } else {
     // 数据不新鲜则后台刷新，但立即返回现有数据，用户零等待
     warm()
@@ -122,12 +172,20 @@ router.get('/list', async (req, res) => {
   res.json(snapshot())
 })
 
-// 触发刷新（强制重抓全部，等待完成）
+// 触发刷新（强制重抓全部，最多等 3s，其余在后台继续）
 router.post('/refresh', async (req, res) => {
-  await warm(true)
+  await Promise.race([warm(true), sleep(3000)])
   res.json(snapshot())
 })
 
 router.get('/platforms', (req, res) => res.json(PLATFORMS))
+
+// 用系统默认浏览器打开热点链接（内嵌浏览器里 target=_blank 常被拦截）
+router.post('/open', (req, res) => {
+  const url = String(req.body?.url || '')
+  if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: '链接不合法' })
+  spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, windowsHide: true }).unref()
+  res.json({ ok: true })
+})
 
 module.exports = router
