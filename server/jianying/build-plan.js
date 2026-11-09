@@ -49,6 +49,36 @@ function stamp() {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
 }
 
+// 集成节点内部的卡片顺序：有连线就沿连线走，没连线的按位置（从上到下、从左到右）补到后面
+function orderSceneItems(items, edges) {
+  const list = items.map((it, i) => ({ it, id: it?.id || `#${i}` }))
+  const byId = new Map(list.map((x) => [x.id, x.it]))
+  const next = new Map()
+  const indeg = new Map(list.map((x) => [x.id, 0]))
+  for (const e of edges || []) {
+    if (!byId.has(e.source) || !byId.has(e.target) || e.source === e.target) continue
+    if (!next.has(e.source)) next.set(e.source, [])
+    next.get(e.source).push(e.target)
+    indeg.set(e.target, (indeg.get(e.target) || 0) + 1)
+  }
+  const posKey = (it) => (it?.position?.y || 0) * 10000 + (it?.position?.x || 0)
+  const seen = new Set()
+  const ordered = []
+  const walk = (id) => {
+    if (!id || seen.has(id) || !byId.has(id)) return
+    seen.add(id)
+    ordered.push(byId.get(id))
+    for (const c of (next.get(id) || []).sort((a, b) => posKey(byId.get(a)) - posKey(byId.get(b)))) walk(c)
+  }
+  list
+    .filter((x) => (indeg.get(x.id) || 0) === 0 && (next.get(x.id) || []).length > 0)
+    .sort((a, b) => posKey(a.it) - posKey(b.it))
+    .forEach((x) => walk(x.id))
+  // 没连线的卡片、以及成环走不到的卡片，按位置补在最后
+  list.filter((x) => !seen.has(x.id)).sort((a, b) => posKey(a.it) - posKey(b.it)).forEach((x) => walk(x.id))
+  return ordered
+}
+
 // 生成剪辑计划：clips 按故事线顺序，剧情节点文字作为紧随其后的视频片段字幕
 function buildPlan(project) {
   const canvas = JSON.parse(project.canvas || '{}')
@@ -67,11 +97,21 @@ function buildPlan(project) {
       skipped.push(data?.filename || `素材 ${mediaId}`)
       return
     }
+    // 镜头自带的字幕：一行一条，和上游字幕节点累积的内容合并
+    const ownSubs = String(data?.subtitle || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((text) => ({ text, font: '' }))
+    const music = data?.musicId != null ? db.prepare('SELECT * FROM music_files WHERE id = ?').get(data.musicId) : null
+    const hasMusic = !!(music && fs.existsSync(music.path))
     clips.push({
       path: row.filepath,
       filename: row.filename,
       orientation: row.orientation || '',
-      subtitles: subtitles.map((s) => ({ text: s.text, font: s.font || '' })),
+      subtitles: [...subtitles, ...ownSubs].map((s) => ({ text: s.text, font: s.font || '' })),
+      bgmPath: hasMusic ? music.path : '',
+      bgmVolume: hasMusic ? (data?.musicVolume != null ? Number(data.musicVolume) : 0.3) : null,
       inPoint: Number(data?.inPoint) || 0,
       outPoint: Number(data?.outPoint) || null,
       speed: Number(data?.speed) || 1,
@@ -97,7 +137,10 @@ function buildPlan(project) {
       pushClip(node.data, (canvas.edges || []).find((e) => e.source === node.id)?.data)
     } else if (node.type === 'scene') {
       const outEdge = (canvas.edges || []).find((e) => e.source === node.id)
-      const items = Array.isArray(node.data?.items) ? node.data.items : []
+      const items = orderSceneItems(
+        Array.isArray(node.data?.items) ? node.data.items : [],
+        node.data?.edges,
+      )
       const lastVideoIndex = items.map((it) => it.kind).lastIndexOf('video')
       items.forEach((it, index) => {
         if (it.kind === 'video') pushClip(it, index === lastVideoIndex ? outEdge?.data : null)
@@ -133,8 +176,10 @@ function buildPlan(project) {
   const dims = DIMS[orientation]
   const mismatched = clips.filter((c) => c.orientation && c.orientation !== orientation).length
 
-  // 全局 BGM 兜底（画布没有音乐节点时使用）
-  if (!bgm) {
+  // 全局 BGM 兜底：镜头自带配乐时不再叠加（避免两个音轨同时响）
+  const hasClipBgm = clips.some((c) => c.bgmPath)
+  if (hasClipBgm) bgm = null
+  if (!bgm && !hasClipBgm) {
     const globalBgm = db.prepare("SELECT value FROM settings WHERE key = 'bgm_path'").get()
     if (globalBgm?.value && fs.existsSync(globalBgm.value)) {
       const row = db.prepare('SELECT * FROM music_files WHERE path = ?').get(globalBgm.value)

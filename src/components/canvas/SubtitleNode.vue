@@ -1,9 +1,13 @@
 <template>
   <div class="node subtitle" @dblclick="$emit('edit', id)">
-    <Handle type="target" :position="Position.Left" />
+    <Handle type="target" id="tl" :position="Position.Left" />
+
+    <Handle type="target" id="tt" :position="Position.Top" />
     <div class="head">💬 字幕节点</div>
     <div class="content">{{ data.content || '（空字幕）' }}</div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle type="source" id="sr" :position="Position.Right" />
+
+    <Handle type="source" id="sb" :position="Position.Bottom" />
   </div>
 </template>
 

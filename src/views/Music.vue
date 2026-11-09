@@ -10,6 +10,13 @@
       </div>
     </div>
 
+    <div class="filters">
+      <el-input v-model="keyword" placeholder="搜索文件名 / 标签" clearable style="width: 240px" />
+      <el-checkbox v-model="onlyFav">只看收藏</el-checkbox>
+      <el-tag v-if="activeTag" closable type="primary" @close="activeTag = ''">标签：{{ activeTag }}</el-tag>
+      <span class="muted">{{ filtered.length }} / {{ items.length }} 首</span>
+    </div>
+
     <div v-if="bgm.path" class="bgm-bar">
       当前 BGM：<strong>{{ bgm.filename }}</strong>
       <span v-if="bgm.lyric_path" class="lyric-badge">🎤 含歌词</span>
@@ -17,8 +24,14 @@
     </div>
 
     <el-empty v-if="!items.length" description="还没有音乐素材。把音频文件放入音乐目录后点击「扫描音乐目录」" />
-
-    <el-table v-else :data="items" style="margin-top: 16px" :row-class-name="rowClass">
+    <el-table v-else :data="filtered" style="margin-top: 16px" :row-class-name="rowClass">
+      <el-table-column label="收藏" width="60" align="center">
+        <template #default="{ row }">
+          <span class="fav-btn" :class="{ on: row.favorite }" :title="row.favorite ? '取消收藏' : '收藏'" @click.stop="toggleFav(row)">
+            {{ row.favorite ? '★' : '☆' }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="封面" width="72">
         <template #default="{ row }">
           <div class="cover-box">
@@ -27,7 +40,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="文件名" min-width="240">
+      <el-table-column label="文件名" min-width="260">
         <template #default="{ row }">
           <span class="name-link" :title="row.filename" @click="playMusic(row)">
             <span v-if="currentSong?.id === row.id && playing" class="playing-ico">▶</span>
@@ -35,38 +48,64 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="格式" width="90">
+      <el-table-column label="标签" min-width="190">
+        <template #default="{ row }">
+          <el-select
+            :model-value="rowTags(row)"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            collapse-tags
+            collapse-tags-tooltip
+            size="small"
+            placeholder="加标签"
+            class="tag-select"
+            @update:model-value="(v) => saveTags(row, v)"
+          >
+            <el-option v-for="t in allTags" :key="t" :label="t" :value="t" />
+          </el-select>
+        </template>
+      </el-table-column>
+      <el-table-column label="格式" width="70">
         <template #default="{ row }">{{ (row.ext || '').toUpperCase() }}</template>
       </el-table-column>
-      <el-table-column label="大小" width="100">
+      <el-table-column label="大小" width="90">
         <template #default="{ row }">{{ formatSize(row.size) }}</template>
       </el-table-column>
-      <el-table-column prop="created_at" label="加入时间" width="170" />
-      <el-table-column label="操作" width="260">
+      <el-table-column prop="created_at" label="加入时间" width="160" />
+      <el-table-column label="操作" width="120">
         <template #default="{ row }">
-          <el-button v-if="row.lyric_path" size="small" @click.stop="showLyric(row)">歌词</el-button>
           <el-button v-if="row.ext !== 'mp3'" size="small" :loading="row._converting" @click.stop="convertOne(row)">转 MP3</el-button>
-          <el-button size="small" plain :type="isBgm(row) ? 'success' : 'primary'" @click.stop="setBgm(row)">设为 BGM</el-button>
-          <el-tag v-if="isBgm(row)" size="small" type="success" style="margin-left: 8px">当前 BGM</el-tag>
+          <el-tag v-if="isBgm(row)" size="small" type="success">BGM</el-tag>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="lyricVisible" width="520px" :title="`歌词 · ${lyricTitle}`">
-      <pre class="lyric-text" v-loading="lyricLoading">{{ lyricText || '没有歌词' }}</pre>
-    </el-dialog>
+    <!-- 歌词播放：标题 + 滚动歌词 + 波形进度条（含高潮点） -->
+    <LyricDialog
+      v-model="lyricVisible"
+      :song="currentSong"
+      :current-time="curTime"
+      :duration="duration"
+      :playing="playing"
+      @toggle="togglePlay"
+      @seek="seekTo"
+      @prev="prev"
+      @next="next"
+    />
 
-    <!-- 底部播放器：封面 + 标题 + 时间轴 + 上下曲/播放 -->
+    <!-- 底部播放器：点封面/标题打开歌词弹窗 -->
     <div v-if="currentSong" class="player-bar">
-      <div class="player-cover">
+      <div class="player-cover" @click="lyricVisible = true">
         <img v-if="currentSong.cover_path" :src="musicCoverUrl(currentSong.id)" alt="" />
         <span v-else>🎵</span>
       </div>
-      <div class="player-info">
+      <div class="player-info" @click="lyricVisible = true">
         <div class="player-title" :title="currentSong.filename">{{ currentSong.filename }}</div>
         <div class="player-axis">
           <span class="time">{{ fmtTime(curTime) }}</span>
-          <div class="axis" @click="seek">
+          <div class="axis" @click.stop="seek">
             <div class="axis-fill" :style="{ width: axisPct + '%' }"></div>
           </div>
           <span class="time">{{ fmtTime(duration) }}</span>
@@ -93,6 +132,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import api, { musicUrl, musicCoverUrl } from '../api'
+import LyricDialog from '../components/music/LyricDialog.vue'
 
 const items = ref([])
 const musicDir = ref('')
@@ -109,11 +149,48 @@ const duration = ref(0)
 const axisPct = computed(() => (duration.value ? (curTime.value / duration.value) * 100 : 0))
 
 const lyricVisible = ref(false)
-const lyricLoading = ref(false)
-const lyricText = ref('')
-const lyricTitle = ref('')
 const converting = ref(false)
 const hasConvertible = computed(() => items.value.some((r) => r.ext !== 'mp3'))
+
+/* ---------------- 收藏 / 标签 / 检索 ---------------- */
+const keyword = ref('')
+const onlyFav = ref(false)
+const activeTag = ref('')
+
+function rowTags(row) {
+  return String(row?.tags || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+}
+
+const allTags = computed(() => {
+  const set = new Set()
+  for (const row of items.value) rowTags(row).forEach((t) => set.add(t))
+  return [...set]
+})
+
+const filtered = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return items.value.filter((row) => {
+    if (onlyFav.value && !row.favorite) return false
+    if (activeTag.value && !rowTags(row).includes(activeTag.value)) return false
+    if (!kw) return true
+    const tags = rowTags(row).join(' ').toLowerCase()
+    return String(row.filename || '').toLowerCase().includes(kw) || tags.includes(kw)
+  })
+})
+
+async function toggleFav(row) {
+  const next = row.favorite ? false : true
+  const { data } = await api.post(`/music/favorite/${row.id}`, { favorite: next })
+  row.favorite = data.favorite
+}
+
+async function saveTags(row, tags) {
+  const { data } = await api.post(`/music/tags/${row.id}`, { tags })
+  row.tags = (data.tags || []).join(',')
+}
 
 function rowClass({ row }) {
   return currentSong.value?.id === row.id ? 'row-playing' : ''
@@ -171,6 +248,14 @@ function seek(e) {
   curTime.value = a.currentTime
 }
 
+// 歌词弹窗里点歌词 / 点波形 / 点高潮点都走这里
+function seekTo(time) {
+  const a = audioRef.value
+  if (!a || !Number.isFinite(time)) return
+  a.currentTime = time
+  curTime.value = time
+}
+
 function prev() {
   if (!currentSong.value || !items.value.length) return
   const idx = items.value.findIndex((r) => r.id === currentSong.value.id)
@@ -201,8 +286,13 @@ async function scan() {
   try {
     const { data } = await api.post('/music/scan')
     ElMessage.success(`扫描完成，新增 ${data.added} 个，共 ${data.total} 个；识别封面 ${data.withCover || 0} 个、歌词 ${data.withLyric || 0} 个`)
-    if (data.ncmSkipped > 0) {
-      ElMessage.warning(`检测到 ${data.ncmSkipped} 个 .ncm（网易云加密格式）未导入，请使用 mp3/flac`)
+    if (data.ncmDecoded > 0) {
+      ElMessage.success(`已解码 ${data.ncmDecoded} 个网易云 .ncm 文件`)
+    }
+    if (data.ncmFailed?.length) {
+      const first = data.ncmFailed[0]
+      const more = data.ncmFailed.length > 1 ? ` 等 ${data.ncmFailed.length} 个` : ''
+      ElMessage.warning(`.ncm 解码失败${more}：${first.filename}（${first.error}）`)
     }
     await load()
   } finally {
@@ -210,30 +300,7 @@ async function scan() {
   }
 }
 
-// 歌词预览：去掉 LRC 时间标签，只显示文字
-async function showLyric(row) {
-  lyricTitle.value = row.filename
-  lyricText.value = ''
-  lyricVisible.value = true
-  lyricLoading.value = true
-  try {
-    const { data } = await api.get(`/music/lyric/${row.id}`)
-    lyricText.value = String(data || '')
-      .split(/\r?\n/)
-      .map((line) => line.replace(/\[[^\]]*\]/g, '').trim())
-      .filter(Boolean)
-      .join('\n')
-  } finally {
-    lyricLoading.value = false
-  }
-}
-
-async function setBgm(row) {
-  await api.post(`/music/bgm/${row.id}`)
-  bgm.value = row
-  ElMessage.success(`已把「${row.filename}」设为 BGM`)
-}
-
+// 歌词预览与 BGM 设置已改为点击歌曲弹出歌词播放器（LyricDialog）
 async function clearBgm() {
   await api.delete('/music/bgm')
   bgm.value = { path: null }
@@ -272,6 +339,22 @@ onMounted(load)
 .page { padding-bottom: 96px; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; }
 .actions { display: flex; align-items: center; gap: 12px; }
+.filters { display: flex; align-items: center; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+.fav-btn { cursor: pointer; font-size: 18px; color: var(--el-text-color-placeholder); line-height: 1; }
+.fav-btn:hover { color: var(--el-color-warning); }
+.fav-btn.on { color: var(--el-color-warning); }
+.tag-select { width: 100%; }
+/* 平时像"加标签"提示，hover/聚焦才显出边框，减少表格噪音 */
+.tag-select :deep(.el-select__wrapper) {
+  min-height: 26px;
+  background: transparent;
+  box-shadow: none;
+}
+.tag-select:hover :deep(.el-select__wrapper),
+.tag-select :deep(.el-select__wrapper.is-focused) {
+  background: var(--el-fill-color-blank);
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+}
 .muted { color: var(--el-text-color-placeholder); font-size: 12px; }
 .bgm-bar { margin-top: 12px; font-size: 13px; color: var(--el-text-color-secondary); display: flex; align-items: center; flex-wrap: wrap; }
 .lyric-badge { margin-left: 12px; padding: 1px 8px; border-radius: 10px; background: var(--el-color-success-light-9); color: var(--el-color-success); font-size: 12px; }
@@ -302,17 +385,6 @@ onMounted(load)
 .name-link:hover { text-decoration: underline; }
 .playing-ico { color: var(--el-color-success); font-size: 12px; }
 :deep(.row-playing td) { background-color: var(--el-color-primary-light-9) !important; }
-.lyric-text {
-  margin: 0;
-  max-height: 60vh;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.9;
-  color: var(--el-text-color-regular);
-}
 
 /* 底部播放器 */
 .player-bar {

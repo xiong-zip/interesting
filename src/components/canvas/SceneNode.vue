@@ -7,7 +7,9 @@
     @dragleave="hover = false"
     @drop.prevent="onDrop"
   >
-    <Handle type="target" :position="Position.Left" />
+    <Handle type="target" id="tl" :position="Position.Left" />
+
+    <Handle type="target" id="tt" :position="Position.Top" />
     <div class="head">
       <span>🧩 集成节点</span>
       <div class="head-right">
@@ -27,7 +29,7 @@
         :title="c.name"
       >
         <img v-if="c.kind === 'video' && c.mediaId" :src="thumbUrl(c.mediaId)" loading="lazy" />
-        <span v-else class="mc-icon">{{ c.kind === 'video' ? '🎬' : c.kind === 'audio' ? '🎵' : '💬' }}</span>
+        <span v-else class="mc-icon">{{ c.icon }}</span>
       </div>
       <div v-if="!items.length" class="empty">
         <div class="empty-icon">＋</div>
@@ -35,7 +37,9 @@
         <div class="empty-tip">也可以把素材面板里的卡片直接拖进来</div>
       </div>
     </div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle type="source" id="sr" :position="Position.Right" />
+
+    <Handle type="source" id="sb" :position="Position.Bottom" />
   </div>
 </template>
 
@@ -52,6 +56,7 @@ const NODE_W = 220
 const NODE_H = 140
 const PAD = 18
 // 缩略画布：按卡片在内部画布中的位置等比缩放，呈现真实布局
+const KIND_ICONS = { video: '🎬', audio: '🎵', subtitle: '💬', plot: '🎬', role: '👤', hot: '🔥' }
 const cards = computed(() => {
   const list = items.value
   if (!list.length) return []
@@ -67,8 +72,9 @@ const cards = computed(() => {
   return placed.map((p) => ({
     key: `${p.x}-${p.y}`,
     kind: p.it.kind,
+    icon: KIND_ICONS[p.it.kind] || '📄',
     mediaId: p.it.mediaId,
-    name: p.it.filename || p.it.text || '',
+    name: p.it.filename || p.it.text || p.it.title || '',
     left: PAD + p.x * scale,
     top: PAD + p.y * scale,
     width: NODE_W * scale,
@@ -169,6 +175,9 @@ function onDrop(e) {
 .mc img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mc.audio { background: #fff7e8; border-color: #f3d9a4; }
 .mc.subtitle { background: #f0fff4; border-color: #bfe7cd; }
+.mc.plot { background: #eef4ff; border-color: #bcd4f7; }
+.mc.role { background: #f6f2ff; border-color: #d5c8f7; }
+.mc.hot { background: #fff2f2; border-color: #f4c6c6; }
 .mc-icon { font-size: 12px; line-height: 1; }
 .empty {
   position: absolute;

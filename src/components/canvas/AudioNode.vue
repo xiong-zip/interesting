@@ -1,10 +1,14 @@
 <template>
   <div class="node audio" @dblclick="$emit('inspect', id)">
-    <Handle type="target" :position="Position.Left" />
+    <Handle type="target" id="tl" :position="Position.Left" />
+
+    <Handle type="target" id="tt" :position="Position.Top" />
     <div class="head">🎵 背景音乐</div>
     <div class="title">{{ data.filename }}</div>
     <div class="meta">音量 {{ Math.round((data.volume ?? 0.25) * 100) }}% · 双击调整</div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle type="source" id="sr" :position="Position.Right" />
+
+    <Handle type="source" id="sb" :position="Position.Bottom" />
   </div>
 </template>
 

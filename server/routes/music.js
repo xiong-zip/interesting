@@ -33,13 +33,13 @@ function musicDir() {
   return path.isAbsolute(dir) ? dir : path.join(__dirname, '..', '..', dir)
 }
 
-// 递归扫描音乐目录（.ncm 为网易云加密格式，仅计数不导入）
+// 递归扫描音乐目录（.ncm 先调用 ncmdump 解码成 mp3/flac，再按普通音频入库）
 router.post('/scan', (req, res) => {
   const root = musicDir()
   if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true })
 
   const found = []
-  let ncmSkipped = 0
+  const ncmFiles = []
   const walk = (dir) => {
     for (const name of fs.readdirSync(dir)) {
       const full = path.join(dir, name)
@@ -51,12 +51,28 @@ router.post('/scan', (req, res) => {
         if (AUDIO_EXTS.includes(ext)) {
           found.push({ filename: name, filepath: full, size: stat.size, ext: ext.slice(1) })
         } else if (ext === '.ncm') {
-          ncmSkipped++
+          ncmFiles.push(full)
         }
       }
     }
   }
   walk(root)
+
+  // 解码 .ncm：产物直接落在源文件旁边，之后和普通音频一样入库
+  const ncm = decodeNcmFiles(ncmFiles)
+  const seen = new Set(found.map((f) => f.filepath))
+  for (const item of ncm.decoded) {
+    const target = item.output
+    if (seen.has(target)) continue
+    seen.add(target)
+    const stat = fs.statSync(target)
+    found.push({
+      filename: path.basename(target),
+      filepath: target,
+      size: stat.size,
+      ext: path.extname(target).slice(1).toLowerCase(),
+    })
+  }
 
   const existing = new Set(db.prepare('SELECT path FROM music_files').all().map((r) => r.path))
   let added = 0
@@ -77,7 +93,16 @@ router.post('/scan', (req, res) => {
   tx()
 
   const total = db.prepare('SELECT COUNT(*) AS c FROM music_files').get().c
-  res.json({ added, total, ncmSkipped, withCover, withLyric })
+  const decodedCount = ncm.decoded.filter((d) => d && !d.skipped).length
+  res.json({
+    added,
+    total,
+    ncmDecoded: decodedCount,
+    ncmSkipped: ncm.decoded.length - decodedCount,
+    ncmFailed: ncm.failed,
+    withCover,
+    withLyric,
+  })
 })
 
 router.get('/list', (req, res) => {
@@ -124,6 +149,25 @@ router.get('/stream/:id', (req, res) => {
   }
 })
 
+// 收藏 / 取消收藏
+router.post('/favorite/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM music_files WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: '音乐不存在' })
+  const favorite = req.body?.favorite === false ? 0 : 1
+  db.prepare('UPDATE music_files SET favorite = ? WHERE id = ?').run(favorite, row.id)
+  res.json({ ok: true, favorite })
+})
+
+// 设置标签：传数组或逗号分隔字符串，统一去空去重后存 CSV
+router.post('/tags/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM music_files WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: '音乐不存在' })
+  const raw = Array.isArray(req.body?.tags) ? req.body.tags : String(req.body?.tags || '').split(',')
+  const tags = [...new Set(raw.map((t) => String(t).trim()).filter(Boolean))]
+  db.prepare('UPDATE music_files SET tags = ? WHERE id = ?').run(tags.join(','), row.id)
+  res.json({ ok: true, tags })
+})
+
 // 设为全局 BGM
 router.post('/bgm/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM music_files WHERE id = ?').get(req.params.id)
@@ -156,6 +200,40 @@ router.post('/use-lyric', (req, res) => {
   db.prepare("INSERT INTO settings (key, value) VALUES ('use_bgm_lyric', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(enabled ? '1' : '0')
   res.json({ ok: true })
 })
+
+// 批量解码 .ncm：整个列表交给一个 python 进程，单个文件失败不影响其它文件
+function decodeNcmFiles(files) {
+  if (!files.length) return { decoded: [], failed: [] }
+  const r = spawnSync(process.env.PYTHON || 'python', [path.join(__dirname, '..', 'ncm.py')], {
+    input: JSON.stringify(files),
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  })
+  const output = String(r.stdout || '').trim()
+  let list = null
+  const lastLine = output.split(/\r?\n/).filter(Boolean).pop()
+  if (lastLine) {
+    try {
+      list = JSON.parse(lastLine)
+    } catch {
+      list = null
+    }
+  }
+  if (!Array.isArray(list)) {
+    const stderr = String(r.stderr || '').trim()
+    const error = /No module named 'ncmdump'/.test(stderr)
+      ? '未安装 ncmdump，请先执行 pip install ncmdump'
+      : stderr.split(/\r?\n/).filter(Boolean).pop() || 'ncmdump 解码失败'
+    return { decoded: [], failed: files.map((f) => ({ filename: path.basename(f), error })) }
+  }
+  const decoded = []
+  const failed = []
+  for (const item of list) {
+    if (item.ok) decoded.push({ output: item.output, skipped: !!item.skipped })
+    else failed.push({ filename: path.basename(item.source || ''), error: item.error || '解码失败' })
+  }
+  return { decoded, failed }
+}
 
 // ffmpeg 路径：优先环境变量，其次 imageio-ffmpeg 自带的二进制
 function ffmpegPath() {

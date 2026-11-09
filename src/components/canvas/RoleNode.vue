@@ -1,10 +1,12 @@
 <template>
   <div class="node role" @dblclick="$emit('edit', id)">
-    <Handle type="target" :position="Position.Left" />
+    <Handle type="target" id="tl" :position="Position.Left" />
+    <Handle type="target" id="tt" :position="Position.Top" />
     <div class="head">👤 角色</div>
     <div class="title">{{ data.title }}</div>
     <div class="content">{{ data.content }}</div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle type="source" id="sr" :position="Position.Right" />
+    <Handle type="source" id="sb" :position="Position.Bottom" />
   </div>
 </template>
 

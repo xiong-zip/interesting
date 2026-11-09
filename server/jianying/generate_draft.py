@@ -167,10 +167,61 @@ def main():
         end_seg.add_animation(draft.TextOutro.渐隐, 0.5)
         script.add_segment(end_seg, overlay_track)
 
-    # 背景音乐（音量压低、淡入淡出）
+    # 每个镜头自带的配乐：位置跟着镜头走。
+    # 连续几个镜头用同一首曲子时合并成一段音轨，并从上次播放的位置接着放（source_timerange），
+    # 否则每切一个镜头音乐就会从头重来。
+    clip_bgm_plan = []
+    music_cursor = {}   # 曲目 -> 已经播到的位置（微秒）
+    music_length = {}   # 曲目 -> 素材总长
+    runs = []           # [{path, start, dur, source_start, volume}]
+    for _seg, start, duration, clip in built:
+        path = clip.get("bgmPath")
+        if not path or not os.path.exists(path):
+            continue
+        volume = float(clip.get("bgmVolume") if clip.get("bgmVolume") is not None else 0.3)
+        if path not in music_length:
+            try:
+                music_length[path] = draft.AudioMaterial(path).duration
+            except Exception:
+                music_length[path] = 0
+        length = music_length[path]
+        source_start = music_cursor.get(path, 0)
+        # 素材不够长就重新从头放，避免超出时长报错
+        if length and source_start + duration > length:
+            source_start = 0
+        clip_bgm_plan.append((clip, start, duration))
+        last = runs[-1] if runs else None
+        adjacent = (
+            last
+            and last["path"] == path
+            and abs(last["volume"] - volume) < 1e-6
+            and last["start"] + last["dur"] == start
+            and last["source_start"] + last["dur"] == source_start
+        )
+        if adjacent:
+            last["dur"] += duration
+        else:
+            runs.append({"path": path, "start": start, "dur": duration, "source_start": source_start, "volume": volume})
+        music_cursor[path] = source_start + duration
+
+    for run in runs:
+        try:
+            audio_track = script.append_track(draft.TrackSpec(draft.TrackType.audio))
+            audio = draft.AudioSegment(
+                run["path"],
+                draft.Timerange(run["start"], run["dur"]),
+                source_timerange=draft.Timerange(run["source_start"], run["dur"]),
+                volume=run["volume"],
+            )
+            audio.add_fade("0.5s", "1s")
+            script.add_segment(audio, audio_track)
+        except Exception as e:  # 单个镜头配乐失败不影响主流程
+            print(f"镜头配乐添加失败: {e}", file=sys.stderr)
+
+    # 全局 BGM（音量压低、淡入淡出）：镜头自带配乐时不叠加
     bgm = plan.get("bgmPath")
     bgm_used = False
-    if bgm and os.path.exists(bgm):
+    if bgm and os.path.exists(bgm) and not clip_bgm_plan:
         try:
             audio_track = script.append_track(draft.TrackSpec(draft.TrackType.audio))
             audio = draft.AudioSegment(bgm, draft.Timerange(0, cursor), volume=float(plan.get("bgmVolume", 0.25)))
@@ -210,6 +261,8 @@ def main():
         "segments": len(segments),
         "durationUs": cursor,
         "bgm": bgm_used,
+        "clipBgm": len(clip_bgm_plan),
+        "clipBgmTracks": len(runs),
         "lyrics": lyrics_count,
     }, ensure_ascii=False))
 

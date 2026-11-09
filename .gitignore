@@ -1,8 +1,8 @@
 node_modules/
-dist/
-data/
-media/
-music/
+/dist/
+/data/
+/media/
+/music/
 .env
 *.log
 .tmp-edge-profile*/

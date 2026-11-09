@@ -90,10 +90,14 @@ async function openHot(item) {
   }
 }
 
-// 打开脚本所属项目的剧情画布
-function openScript(s) {
-  if (s.project_id) router.push(`/canvas/${s.project_id}`)
-  else router.push('/scripts')
+// 打开脚本所属项目的剧情画布（没有就自动生成）
+async function openScript(s) {
+  try {
+    const { data } = await api.post(`/scripts/${s.id}/canvas`)
+    if (data.projectId) router.push(`/canvas/${data.projectId}`)
+  } catch {
+    /* 拦截器已提示 */
+  }
 }
 
 onMounted(async () => {

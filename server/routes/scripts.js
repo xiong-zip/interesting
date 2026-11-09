@@ -5,9 +5,12 @@ const { parseShots } = require('../shots')
 const router = express.Router()
 
 router.get('/list', (req, res) => {
+  // 老脚本没回写 project_id，用「由脚本「xxx」自动生成分镜画布」这个描述兜底关联
   const rows = db.prepare(`
-    SELECT s.*, p.name AS project_name FROM scripts s
+    SELECT s.*, COALESCE(p.name, p2.name) AS project_name, COALESCE(p.id, p2.id) AS project_id_resolved
+    FROM scripts s
     LEFT JOIN projects p ON p.id = s.project_id
+    LEFT JOIN projects p2 ON p2.description = '由脚本「' || s.title || '」自动生成分镜画布'
     ORDER BY s.updated_at DESC
   `).all()
   res.json({ items: rows })
@@ -35,21 +38,68 @@ router.put('/:id', (req, res) => {
 })
 
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM scripts WHERE id = ?').run(req.params.id)
-  res.json({ ok: true })
-})
-
-// 把脚本的分镜转成画布节点：
-// - body 带 projectId → 追加到该项目画布（已有节点下方，纵向连线成故事线）
-// - 不带 projectId → 新建项目，画布即分镜故事线
-router.post('/:id/to-canvas', (req, res) => {
   const script = db.prepare('SELECT * FROM scripts WHERE id = ?').get(req.params.id)
   if (!script) return res.status(404).json({ error: '脚本不存在' })
 
-  const shots = parseShots(script.content)
-  if (shots.length === 0) return res.json({ projectId: null, added: 0 })
+  // canvas: 'project' 连画布一起删 / 'nodes' 只删这个脚本生成的分镜节点 / 不传只删脚本
+  const mode = req.body?.canvas || (req.query.canvas === '1' ? 'nodes' : null)
+  const autoDesc = `由脚本「${script.title}」自动生成分镜画布`
+  const linked = script.project_id
+    ? db.prepare('SELECT * FROM projects WHERE id = ?').get(script.project_id)
+    : db.prepare('SELECT * FROM projects WHERE description = ?').get(autoDesc)
+  let removedNodes = 0
+  let removedProject = false
+  let projectName = ''
 
-  let pid = req.body?.projectId
+  if (linked && mode) {
+    const canvas = typeof linked.canvas === 'string' ? JSON.parse(linked.canvas || '{}') : linked.canvas || {}
+    const nodes = canvas.nodes || []
+    const edges = canvas.edges || []
+    const mine = scriptNodeIds(canvas, script)
+    projectName = linked.name
+    if (mode === 'project') {
+      db.prepare('DELETE FROM projects WHERE id = ?').run(linked.id)
+      removedNodes = mine.size
+      removedProject = true
+    } else {
+      const rest = nodes.filter((n) => !mine.has(n.id))
+      const restEdges = edges.filter((e) => !mine.has(e.source) && !mine.has(e.target))
+      removedNodes = mine.size
+      // 画布是脚本自动建的，删完没别的节点了，就把空画布一起收掉
+      if (rest.length === 0 && linked.description === autoDesc) {
+        db.prepare('DELETE FROM projects WHERE id = ?').run(linked.id)
+        removedProject = true
+      } else if (mine.size) {
+        db.prepare("UPDATE projects SET canvas = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(
+          JSON.stringify({ nodes: rest, edges: restEdges }),
+          linked.id,
+        )
+      }
+    }
+  }
+
+  db.prepare('DELETE FROM scripts WHERE id = ?').run(script.id)
+  res.json({ ok: true, removedNodes, removedProject, projectName })
+})
+
+// 找出一张画布上由这个脚本生成的分镜节点：
+// 新数据带 data.scriptId；老数据没有，用节点标题「镜头 · 脚本名前12字」兜底
+function scriptNodeIds(canvas, script) {
+  const marker = `· ${script.title.slice(0, 12)}`
+  const ids = new Set()
+  for (const n of canvas.nodes || []) {
+    if (n.data?.scriptId === script.id) ids.add(n.id)
+    else if (n.type === 'plot' && String(n.data?.title || '').endsWith(marker)) ids.add(n.id)
+  }
+  return ids
+}
+
+// 把脚本的分镜写进画布（必要时新建项目），返回 { projectId, added }
+function materializeCanvas(script, projectId, { createEmpty = false } = {}) {
+  const shots = parseShots(script.content)
+  if (!shots.length && !createEmpty) return { projectId: null, added: 0 }
+
+  let pid = projectId
   if (pid && !db.prepare('SELECT id FROM projects WHERE id = ?').get(pid)) pid = null
   if (!pid) {
     const info = db
@@ -73,7 +123,7 @@ router.post('/:id/to-canvas', (req, res) => {
       id: ids[i],
       type: 'plot',
       position: { x: baseX + i * 300, y: baseY },
-      data: { title: `${s.title} · ${script.title.slice(0, 12)}`, content: s.content },
+      data: { title: `${s.title} · ${script.title.slice(0, 12)}`, content: s.content, scriptId: script.id },
     })
   })
   for (let i = 0; i < ids.length - 1; i++) {
@@ -84,7 +134,36 @@ router.post('/:id/to-canvas', (req, res) => {
     JSON.stringify({ nodes, edges }),
     pid,
   )
-  res.json({ projectId: pid, added: shots.length })
+  // 回写关联，脚本列表能显示所属项目，删脚本时也能找到对应画布
+  db.prepare('UPDATE scripts SET project_id = ? WHERE id = ?').run(pid, script.id)
+  return { projectId: pid, added: shots.length }
+}
+
+// 追加分镜到画布：body 带 projectId 就追加到该项目，不带就新建项目
+router.post('/:id/to-canvas', (req, res) => {
+  const script = db.prepare('SELECT * FROM scripts WHERE id = ?').get(req.params.id)
+  if (!script) return res.status(404).json({ error: '脚本不存在' })
+  res.json(materializeCanvas(script, req.body?.projectId))
+})
+
+// 打开脚本对应的画布：已有就直接返回，没有就生成（脚本里没有分镜时建空画布）
+router.post('/:id/canvas', (req, res) => {
+  const script = db.prepare('SELECT * FROM scripts WHERE id = ?').get(req.params.id)
+  if (!script) return res.status(404).json({ error: '脚本不存在' })
+
+  const autoDesc = `由脚本「${script.title}」自动生成分镜画布`
+  const existing =
+    (script.project_id && db.prepare('SELECT id FROM projects WHERE id = ?').get(script.project_id)) ||
+    db.prepare('SELECT id FROM projects WHERE description = ?').get(autoDesc)
+  if (existing) {
+    if (script.project_id !== existing.id) {
+      db.prepare('UPDATE scripts SET project_id = ? WHERE id = ?').run(existing.id, script.id)
+    }
+    return res.json({ projectId: existing.id, created: false })
+  }
+
+  const { projectId, added } = materializeCanvas(script, null, { createEmpty: true })
+  res.json({ projectId, created: true, added })
 })
 
 module.exports = router

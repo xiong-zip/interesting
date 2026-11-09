@@ -7,7 +7,18 @@ const router = express.Router()
 
 router.get('/list', (req, res) => {
   const rows = db.prepare('SELECT id, name, description, created_at, updated_at FROM projects ORDER BY updated_at DESC').all()
-  res.json({ items: rows })
+  // 由脚本生成的画布标出脚本名；脚本已经被删掉的标记 orphan，前端可以折叠起来
+  const scriptTitles = new Set(db.prepare('SELECT title FROM scripts').all().map((r) => r.title))
+  const linkedIds = new Set(
+    db.prepare('SELECT project_id FROM scripts WHERE project_id IS NOT NULL').all().map((r) => r.project_id),
+  )
+  const items = rows.map((p) => {
+    const m = /^由脚本「(.+?)」自动生成分镜画布$/.exec(p.description || '')
+    const scriptTitle = m ? m[1] : ''
+    const hasScript = linkedIds.has(p.id) || (!!scriptTitle && scriptTitles.has(scriptTitle))
+    return { ...p, script_title: scriptTitle, orphan: !!scriptTitle && !hasScript }
+  })
+  res.json({ items })
 })
 
 router.post('/', (req, res) => {
@@ -69,6 +80,8 @@ router.get('/:id/preview-plan', (req, res) => {
   const clips = plan.clips
     .map((c) => {
       const mediaId = findMedia.get(c.path)?.id
+      // 镜头自带的配乐（预览按镜头切换音轨）
+      const clipBgmId = c.bgmPath ? findMusic.get(c.bgmPath)?.id : null
       return {
         src: mediaId ? `/api/media/stream/${mediaId}` : '',
         filename: c.filename,
@@ -80,6 +93,7 @@ router.get('/:id/preview-plan', (req, res) => {
         transition: c.transition || '',
         transitionDuration: c.transitionDuration || null,
         subtitles: c.subtitles || [],
+        bgm: clipBgmId ? { src: `/api/music/stream/${clipBgmId}`, volume: c.bgmVolume ?? 0.3 } : null,
       }
     })
     .filter((c) => c.src)

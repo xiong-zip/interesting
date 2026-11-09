@@ -1,13 +1,15 @@
 <template>
   <div class="node hot">
-    <Handle type="target" :position="Position.Left" />
+    <Handle type="target" id="tl" :position="Position.Left" />
+    <Handle type="target" id="tt" :position="Position.Top" />
     <div class="head">🔥 热点</div>
     <div class="title">
       <a v-if="data.url" :href="data.url" target="_blank">{{ data.title }}</a>
       <template v-else>{{ data.title }}</template>
     </div>
     <div class="content">来源：{{ data.platform }}</div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle type="source" id="sr" :position="Position.Right" />
+    <Handle type="source" id="sb" :position="Position.Bottom" />
   </div>
 </template>
 

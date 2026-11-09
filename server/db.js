@@ -82,5 +82,12 @@ if (!musicCols.includes('cover_path')) {
 if (!musicCols.includes('lyric_path')) {
   db.exec("ALTER TABLE music_files ADD COLUMN lyric_path TEXT DEFAULT ''")
 }
+// 老库补列：收藏与标签（标签用英文逗号分隔，便于检索）
+if (!musicCols.includes('favorite')) {
+  db.exec('ALTER TABLE music_files ADD COLUMN favorite INTEGER DEFAULT 0')
+}
+if (!musicCols.includes('tags')) {
+  db.exec("ALTER TABLE music_files ADD COLUMN tags TEXT DEFAULT ''")
+}
 
 module.exports = db

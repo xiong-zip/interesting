@@ -105,6 +105,7 @@ const orientation = ref('portrait')
 const mismatched = ref(0)
 
 let bgmAudio = null
+let clipBgmAudio = null
 let raf = 0
 let pendingSeek = 0
 let transitionTimer = null
@@ -212,6 +213,14 @@ onMounted(async () => {
       return clip
     })
     totalDuration.value = cursor
+    // 同一首配乐在连续镜头里接续播放：记下每个镜头开始时音乐已经放到哪
+    const musicCursor = new Map()
+    for (const c of clips.value) {
+      if (!c.bgm?.src) continue
+      const played = musicCursor.get(c.bgm.src) || 0
+      c.bgm = { ...c.bgm, start: played }
+      musicCursor.set(c.bgm.src, played + c.playDur)
+    }
     if (data.bgm?.src) {
       bgmAudio = new Audio(data.bgm.src)
       bgmAudio.loop = true
@@ -224,6 +233,30 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+// 镜头自带配乐：切镜头时换音轨，按镜头内偏移对齐
+function applyClipBgm(clip, offset = 0, autoplay = false) {
+  if (!clipBgmAudio) clipBgmAudio = new Audio()
+  const a = clipBgmAudio
+  const src = clip?.bgm?.src || ''
+  if (!src) {
+    a.pause()
+    a.removeAttribute('src')
+    return
+  }
+  const abs = new URL(src, window.location.origin).href
+  if (a.src !== abs) {
+    a.src = src
+    a.load()
+  }
+  a.loop = false
+  a.volume = Math.min(1, Math.max(0, Number(clip.bgm.volume) || 0.3))
+  try {
+    // bgm.start：同一首曲子在前面的镜头里已经播到的位置，接着往下放
+    a.currentTime = Math.max(0, (clip.bgm.start || 0) + offset)
+  } catch {}
+  if (autoplay) a.play().catch(() => {})
+}
 
 function loadClip(i, offset = 0) {
   const c = clips.value[i]
@@ -238,6 +271,7 @@ function loadClip(i, offset = 0) {
   v.playbackRate = c.speed
   v.volume = Math.min(1, Math.max(0, Number(c.volume) ?? 1))
   position.value = c.start + offset
+  applyClipBgm(c, offset, playing.value)
   if (c.failed && playing.value) setTimeout(() => nextClip(), 1200)
 }
 
@@ -312,6 +346,8 @@ function play() {
     } catch {}
     bgmAudio.play().catch(() => {})
   }
+  const cur = clips.value[currentIndex.value]
+  if (cur?.bgm?.src) applyClipBgm(cur, position.value - cur.start, true)
   cancelAnimationFrame(raf)
   raf = requestAnimationFrame(tick)
 }
@@ -320,6 +356,7 @@ function pause() {
   cancelAnimationFrame(raf)
   videoEl.value?.pause()
   bgmAudio?.pause()
+  clipBgmAudio?.pause()
 }
 function togglePlay() {
   playing.value ? pause() : play()
@@ -336,6 +373,7 @@ function seekTo(t) {
   if (idx === currentIndex.value && ready.value) {
     const v = videoEl.value
     if (v) v.currentTime = c.inPoint + offset * c.speed
+    applyClipBgm(c, offset, playing.value)
     return
   }
   loadClip(idx, offset)
@@ -357,6 +395,8 @@ onUnmounted(() => {
   videoEl.value?.pause()
   bgmAudio?.pause()
   bgmAudio = null
+  clipBgmAudio?.pause()
+  clipBgmAudio = null
 })
 </script>
 
