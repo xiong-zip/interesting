@@ -1,7 +1,7 @@
 <template>
   <div class="canvas-page">
     <div class="toolbar">
-      <el-select v-model="projectId" placeholder="选择项目" style="width: 220px" @change="loadProject">
+      <el-select :model-value="projectId" placeholder="选择项目" style="width: 220px" @change="switchProject">
         <el-option v-for="p in projectOptions" :key="p.id" :label="projectLabel(p)" :value="p.id" />
       </el-select>
       <el-link v-if="orphanCount" type="info" :underline="false" class="orphan-toggle" @click="showOrphanProjects = !showOrphanProjects">
@@ -83,7 +83,7 @@
         :edges-updatable="true"
         fit-view-on-init
         @nodesChange="onNodesChange"
-        @edgesChange="markDirty"
+        @edgesChange="onEdgesChange"
         @connect="onConnect"
         @edge-update="onEdgeUpdate"
         @node-click="onNodeClick"
@@ -105,72 +105,6 @@
       </VueFlow>
     </div>
 
-    <!-- 选中镜头时的右侧详情：不用点开弹窗就能读到字幕 / 配乐 -->
-    <aside v-if="selectedVideo" class="shot-aside">
-      <div class="aside-head">
-        <span class="aside-title" :title="selectedVideo.data?.filename">🎥 {{ selectedVideo.data?.filename }}</span>
-        <button class="aside-close" title="关闭" @click="clearSelection">×</button>
-      </div>
-      <div class="aside-body">
-        <div class="field">
-          <label>字幕 <span class="count">{{ subCount }} 条</span></label>
-          <el-input
-            ref="asideSubRef"
-            :model-value="selectedVideo.data?.subtitle || ''"
-            type="textarea"
-            :rows="4"
-            resize="none"
-            placeholder="一行一条，按镜头时长均分"
-            @change="(v) => updateSelectedVideo({ subtitle: String(v) })"
-          />
-          <div class="field-actions">
-            <el-button size="small" text type="primary" @click="appendSubtitleLine">＋ 添加一条字幕</el-button>
-            <el-button size="small" text @click="openSubtitleStyle">🎨 全片样式</el-button>
-            <span class="field-hint">一行 = 一条字幕</span>
-          </div>
-        </div>
-        <div class="field">
-          <label>配乐</label>
-          <el-select
-            :model-value="selectedVideo.data?.musicId ?? null"
-            clearable
-            filterable
-            size="small"
-            placeholder="不设置则用全局 BGM"
-            style="width: 100%"
-            @update:model-value="onAsideMusic"
-          >
-            <el-option v-for="m in musicFiles" :key="m.id" :label="m.filename" :value="m.id" />
-          </el-select>
-          <el-slider
-            v-if="selectedVideo.data?.musicId"
-            :model-value="Number(selectedVideo.data?.musicVolume ?? 0.3)"
-            :min="0"
-            :max="1"
-            :step="0.05"
-            size="small"
-            @update:model-value="(v) => updateSelectedVideo({ musicVolume: Number(v) })"
-          />
-          <div class="field-actions">
-            <el-button v-if="prevShotMusic" size="small" text type="primary" @click="inheritMusic">
-              沿用上一镜头：{{ prevShotMusic.data?.musicName || prevShotMusic.data?.filename }}
-            </el-button>
-            <span v-else class="field-hint">{{ selectedVideo.data?.musicId ? '与前后镜头同曲会接着播' : '' }}</span>
-          </div>
-        </div>
-        <div class="field">
-          <label>镜头参数</label>
-          <div class="chips">
-            <span class="chip">✂️ {{ asideTrim }}</span>
-            <span v-if="Number(selectedVideo.data?.speed) !== 1" class="chip">{{ selectedVideo.data?.speed }}x</span>
-            <span v-if="selectedVideo.data?.filter" class="chip">{{ selectedVideo.data.filter }}</span>
-          </div>
-        </div>
-        <el-button size="small" type="primary" plain style="width: 100%" @click="openShotFromAside">
-          播放 / 裁剪 / 高级设置
-        </el-button>
-      </div>
-    </aside>
     </div>
 
     <el-empty v-if="!projectId && !loading" description="选择或新建一个项目开始梳理剧情" style="margin-top: 120px" />
@@ -202,7 +136,7 @@
           <div class="sub-frame">
             <span class="sub-sample" :style="subtitlePreviewCss">{{ subtitleSample }}</span>
           </div>
-          <div class="sub-preview-tip">9:16 预览 · 以剪映实际字号等比换算</div>
+          <div class="sub-preview-tip">9:16 预览 · 字号按剪映等比换算<br />字体用系统近似，导出仍按所选字体</div>
         </div>
         <el-form label-width="64px" class="sub-form">
           <el-form-item label="字体">
@@ -341,7 +275,12 @@
 
     <!-- 时间轴效果预览（不生成草稿） -->
     <el-dialog v-model="timelinePreviewVisible" title="效果预览（时间轴）" width="92vw" top="3vh" destroy-on-close>
-      <PreviewPlayer v-if="timelinePreviewVisible" :project-id="projectId" />
+      <PreviewPlayer
+        v-if="timelinePreviewVisible"
+        :project-id="projectId"
+        @update-shot="applyShotTransform"
+        @update-subtitle-style="applySubtitleFromPreview"
+      />
     </el-dialog>
 
     <!-- AI 生成 -->
@@ -534,6 +473,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { mediaUrl, thumbUrl } from '../api'
+import { subtitleFontCss } from '../utils/subtitleFont'
 import PlotNode from '../components/canvas/PlotNode.vue'
 import RoleNode from '../components/canvas/RoleNode.vue'
 import VideoNode from '../components/canvas/VideoNode.vue'
@@ -661,9 +601,14 @@ const loading = ref(false)
 const saving = ref(false)
 const exporting = ref(false)
 const dirty = ref(false)
+// 节点是否已从服务端载入完成：没载入前绝不保存，避免把空画布写回去
+let canvasLoaded = false
 let saveTimer = null
+// 每次改动 +1，保存返回时用来判断期间有没有新改动
+let changeVersion = 0
 
 function markDirty() {
+  changeVersion++
   dirty.value = true
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => save(true), 2000) // 自动保存
@@ -707,8 +652,12 @@ const lastClickId = ref(null)
 const kbVisible = ref(false)
 const capturingAction = ref(null)
 
+// 只有位置变化和删除算内容改动；新增节点由 addNode / pickVideo 自己标记，
+// Vue Flow 初次载入也会发 add，不能让它把刚打开的画布标脏
+const CONTENT_CHANGES = new Set(['position', 'remove'])
 function onNodesChange(changes) {
-  markDirty()
+  // dimensions 是 Vue Flow 挂载时的测量结果，不代表用户改了什么
+  if (changes.some((c) => CONTENT_CHANGES.has(c.type))) markDirty()
   for (const c of changes) {
     if (c.type === 'select') {
       if (c.selected) {
@@ -719,6 +668,10 @@ function onNodesChange(changes) {
       }
     }
   }
+}
+// 连线只有增删才算改动；点节点时 Vue Flow 也会发 select
+function onEdgesChange(changes) {
+  if (changes.some((c) => c.type === 'add' || c.type === 'remove')) markDirty()
 }
 function onNodeClick({ node }) {
   lastClickId.value = node.id
@@ -881,80 +834,6 @@ function toggleTextSummary() {
   localStorage.setItem('canvas_text_summary', showTextSummary.value ? '1' : '0')
 }
 
-const selectedVideo = computed(() => {
-  const id = lastClickId.value
-  if (!id) return null
-  const node = nodes.value.find((n) => n.id === id)
-  return node && node.type === 'video' ? node : null
-})
-const subCount = computed(
-  () =>
-    String(selectedVideo.value?.data?.subtitle || '')
-      .split(/\r?\n/)
-      .filter((s) => s.trim()).length,
-)
-const asideTrim = computed(() => {
-  const d = selectedVideo.value?.data || {}
-  const start = Number(d.inPoint) || 0
-  const end = Number(d.outPoint) || 0
-  return `${start.toFixed(1)}s – ${end ? `${end.toFixed(1)}s` : '结尾'}`
-})
-
-function updateSelectedVideo(patch) {
-  const id = selectedVideo.value?.id
-  if (!id) return
-  nodes.value = nodes.value.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))
-  markDirty()
-}
-
-// 加一条字幕：追加空行并把光标放进去，直接接着打字
-const asideSubRef = ref(null)
-function appendSubtitleLine() {
-  const node = selectedVideo.value
-  if (!node) return
-  const cur = String(node.data?.subtitle || '').replace(/\s+$/, '')
-  updateSelectedVideo({ subtitle: cur ? `${cur}\n` : '' })
-  // 等 DOM 把新行渲染出来再聚焦（直接 nextTick 有时会被按钮的焦点抢回去）
-  setTimeout(() => {
-    const el = asideSubRef.value?.textarea || document.querySelector('.shot-aside textarea')
-    if (!el) return
-    el.focus()
-    const pos = el.value.length
-    el.setSelectionRange?.(pos, pos)
-    el.scrollTop = el.scrollHeight
-  }, 50)
-}
-function onAsideMusic(id) {
-  const music = id != null ? musicFiles.value.find((m) => m.id === id) : null
-  updateSelectedVideo({ musicId: music ? music.id : null, musicName: music ? music.filename : '' })
-}
-
-// 「上一镜头」= 有连线指向当前镜头的那个节点；它配了音乐就能一键沿用
-const prevShotMusic = computed(() => {
-  const node = selectedVideo.value
-  if (!node) return null
-  const inEdge = edges.value.find((e) => e.target === node.id)
-  if (!inEdge) return null
-  const src = nodes.value.find((n) => n.id === inEdge.source)
-  return src && src.type === 'video' && src.data?.musicId ? src : null
-})
-function inheritMusic() {
-  const prev = prevShotMusic.value
-  if (!prev) return
-  updateSelectedVideo({
-    musicId: prev.data.musicId,
-    musicName: prev.data.musicName || '',
-    musicVolume: prev.data.musicVolume != null ? Number(prev.data.musicVolume) : 0.3,
-  })
-}
-function openShotFromAside() {
-  const node = selectedVideo.value
-  if (node) onNodeDblClick({ node })
-}
-// 选中镜头时把音乐列表备好
-watch(selectedVideo, (node) => {
-  if (node) loadMusicList()
-})
 
 /* ---------------- 素材面板与拖拽 ---------------- */
 const paletteVisible = ref(false)
@@ -1201,7 +1080,7 @@ const fonts = ['抖音美好体', '思源粗宋', '站酷文艺体', '得意黑'
 
 /* ---------------- 全片字幕样式 ---------------- */
 // 字幕文字写在镜头里，字体 / 字号 / 位置存进画布 JSON，导出和预览都读这一份
-const DEFAULT_SUBTITLE_STYLE = { font: '', size: 8.5, position: -0.66 }
+const DEFAULT_SUBTITLE_STYLE = { font: '', size: 8.5, position: -0.66, positionX: 0 }
 const subtitleStyle = ref({ ...DEFAULT_SUBTITLE_STYLE })
 const subtitleStyleForm = ref({ ...DEFAULT_SUBTITLE_STYLE })
 const subtitleStyleVisible = ref(false)
@@ -1230,10 +1109,24 @@ function applySubtitleStyle() {
     font: String(form.font || ''),
     size: Number(form.size) > 0 ? Number(form.size) : 8.5,
     position: Number.isFinite(Number(form.position)) ? Number(form.position) : -0.66,
+    // 横向位置只在预览里拖动调整，弹窗没有这个控件，这里保留原值
+    positionX: Number.isFinite(Number(form.positionX)) ? Number(form.positionX) : 0,
   }
   subtitleStyleVisible.value = false
-  dirty.value = true
+  markDirty()
   ElMessage.success('字幕样式已应用，保存后导出和预览都会同步')
+}
+
+// 预览里拖动画面 / 字幕：写回节点与全片样式，保存后导出生效
+function applyShotTransform({ nodeId, transformX, transformY }) {
+  nodes.value = nodes.value.map((n) =>
+    n.id === nodeId ? { ...n, data: { ...n.data, transformX, transformY } } : n,
+  )
+  markDirty()
+}
+function applySubtitleFromPreview({ position, positionX }) {
+  subtitleStyle.value = { ...subtitleStyle.value, position, positionX }
+  markDirty()
 }
 // 样式弹窗里的 9:16 预览：优先用第一个镜头里的第一句字幕当样本
 const SUB_PREVIEW_W = 180
@@ -1255,7 +1148,8 @@ const subtitlePreviewCss = computed(() => {
     fontSize: `${Math.max(6, (size * 7.06 * SUB_PREVIEW_W) / 1080).toFixed(1)}px`,
     // transform_y 以画面中心为 0，换成距底部的百分比
     bottom: `${((0.5 + pos * 0.5) * 100).toFixed(1)}%`,
-    fontFamily: f.font ? `"${f.font}", "PingFang SC", "Microsoft YaHei", sans-serif` : '',
+    // 剪映字体本机没装，用近似字体 + 字重/字距把差异显出来
+    ...subtitleFontCss(f.font),
   }
 })
 const filters = ['清透自然', '暖食', '情感电影', '日系奶油', '清晰明亮', '高清黑白']
@@ -1538,15 +1432,28 @@ watch(
   (pid) => {
     const n = Number(pid)
     if (n && n !== projectId.value) {
+      // 切项目前先把当前画布落盘，别让防抖计时器带着旧节点写到新项目
+      flushSave()
       projectId.value = n
       loadProject()
     }
   },
 )
 
+// 下拉切换项目：先把当前画布落盘，再换项目，避免旧节点写到新项目里
+function switchProject(id) {
+  if (!id || id === projectId.value) return
+  flushSave()
+  projectId.value = id
+  dirty.value = false
+  loadProject()
+}
+
 async function loadProject() {
   if (!projectId.value) return
   loading.value = true
+  // 载入过程中禁止保存，避免空节点被写回
+  canvasLoaded = false
   try {
     const { data } = await api.get(`/projects/${projectId.value}`)
     const canvas = typeof data.canvas === 'string' ? JSON.parse(data.canvas || '{}') : data.canvas || {}
@@ -1559,6 +1466,7 @@ async function loadProject() {
       targetHandle: e.targetHandle ?? 'tl',
     }))
     subtitleStyle.value = { ...DEFAULT_SUBTITLE_STYLE, ...(canvas.subtitleStyle || {}) }
+    canvasLoaded = true
     dirty.value = false
     localStorage.setItem('lastProject', String(projectId.value))
   } finally {
@@ -1568,6 +1476,7 @@ async function loadProject() {
 
 async function newProject() {
   const { value } = await ElMessageBox.prompt('项目名称', '新建项目', { inputPattern: /.+/, inputErrorMessage: '必填' })
+  flushSave()
   const { data } = await api.post('/projects', { name: value })
   await loadProjects()
   projectId.value = data.id
@@ -1597,35 +1506,63 @@ async function removeProject() {
   if (!projectId.value) router.replace('/canvas')
 }
 
+// 画布快照：手动保存、自动保存、离开前的兜底都走这一份
+function buildCanvasPayload() {
+  // 剥离 selected/dragging 等瞬态属性，避免选中状态被持久化
+  const clean = (list) => list.map(({ selected, dragging, resizing, ...rest }) => rest)
+  // 连线重接后 Vue Flow 会把整份 GraphEdge（含节点快照）塞回来，这里只留必要字段
+  const cleanEdges = edges.value.map((e) => {
+    const out = {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle ?? null,
+      targetHandle: e.targetHandle ?? null,
+    }
+    if (e.data && Object.keys(e.data).length) out.data = e.data
+    if (e.animated != null) out.animated = e.animated
+    if (e.label) out.label = e.label
+    if (e.type) out.type = e.type
+    return out
+  })
+  return { canvas: { nodes: clean(nodes.value), edges: cleanEdges, subtitleStyle: { ...subtitleStyle.value } } }
+}
+
 async function save(auto = false) {
-  if (!projectId.value) return
+  if (!projectId.value || !canvasLoaded) return
+  const id = projectId.value
+  const version = changeVersion
   saving.value = true
   try {
-    // 剥离 selected/dragging 等瞬态属性，避免选中状态被持久化
-    const clean = (list) => list.map(({ selected, dragging, resizing, ...rest }) => rest)
-    // 连线重接后 Vue Flow 会把整份 GraphEdge（含节点快照）塞回来，这里只留必要字段
-    const cleanEdges = edges.value.map((e) => {
-      const out = {
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? null,
-        targetHandle: e.targetHandle ?? null,
-      }
-      if (e.data && Object.keys(e.data).length) out.data = e.data
-      if (e.animated != null) out.animated = e.animated
-      if (e.label) out.label = e.label
-      if (e.type) out.type = e.type
-      return out
-    })
-    await api.put(`/projects/${projectId.value}`, {
-      canvas: { nodes: clean(nodes.value), edges: cleanEdges, subtitleStyle: { ...subtitleStyle.value } },
-    })
-    dirty.value = false
+    await api.put(`/projects/${id}`, buildCanvasPayload())
+    // 保存期间又改了内容，就别把 dirty 清掉，等下一轮
+    if (changeVersion === version) dirty.value = false
     if (!auto) ElMessage.success('已保存')
   } finally {
     saving.value = false
   }
+}
+
+// 立即落盘：切换项目、离开画布页时调用，避免 2 秒防抖没到就丢改动
+function flushSave() {
+  clearTimeout(saveTimer)
+  if (!dirty.value || !projectId.value || !canvasLoaded) return
+  const id = projectId.value
+  const payload = buildCanvasPayload()
+  dirty.value = false
+  api.put(`/projects/${id}`, payload).catch(() => {})
+}
+
+// 关闭 / 刷新页面时用 keepalive 把最后一次改动发出去
+function flushSaveOnUnload() {
+  if (!dirty.value || !projectId.value || !canvasLoaded) return
+  fetch(`/api/projects/${projectId.value}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildCanvasPayload()),
+    keepalive: true,
+  }).catch(() => {})
+  dirty.value = false
 }
 
 let nodeSeq = Date.now()
@@ -1920,10 +1857,13 @@ async function saveAiScript() {
 onMounted(() => {
   loadProjects()
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('beforeunload', flushSaveOnUnload)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  clearTimeout(saveTimer)
+  window.removeEventListener('beforeunload', flushSaveOnUnload)
+  // 离开画布页时把还压着的改动发出去（自动保存有 2 秒防抖）
+  flushSave()
 })
 </script>
 
@@ -1956,31 +1896,6 @@ onUnmounted(() => {
 .flow-wrap :deep(.vue-flow__edge:hover .vue-flow__edgeupdater),
 .flow-wrap :deep(.vue-flow__edgeupdater:hover) { opacity: 1; }
 
-/* 右侧镜头详情 */
-.shot-aside {
-  width: 340px;
-  flex: 0 0 340px;
-  margin: 0 16px 16px 0;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  background: var(--el-bg-color);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.aside-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--el-border-color-lighter); }
-.aside-title { flex: 1; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.aside-close { border: none; background: transparent; font-size: 18px; line-height: 1; color: var(--el-text-color-secondary); cursor: pointer; padding: 0 4px; }
-.aside-close:hover { color: var(--el-color-danger); }
-.aside-body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field > label { font-size: 12px; color: var(--el-text-color-secondary); display: flex; justify-content: space-between; }
-.field .count { color: var(--el-text-color-placeholder); }
-.field-actions { display: flex; align-items: center; justify-content: space-between; }
-.field-hint { font-size: 11px; color: var(--el-text-color-placeholder); }
-.field :deep(.el-textarea__inner) { font-size: 12px; line-height: 1.6; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--el-fill-color-light); color: var(--el-text-color-regular); }
 .toolbar { display: flex; gap: 10px; align-items: center; padding: 12px 16px; flex-wrap: wrap; }
 .spacer { flex: 1; }
 .tip { font-size: 12px; color: var(--el-text-color-secondary); }

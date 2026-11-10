@@ -4,29 +4,60 @@ const { parseShots } = require('../shots')
 
 const router = express.Router()
 
+// 选题 ↔ 脚本：一条选题可以带多个脚本，关联以 scripts.topic_id 为准。
+// topics.script_id 是旧字段，不再写入，避免「一个选题只有一个脚本」的假象。
+function linkTopic(scriptId, topicId) {
+  unlinkTopics(scriptId)
+  if (!topicId) return
+  const topic = db.prepare('SELECT * FROM topics WHERE id = ?').get(topicId)
+  if (!topic) return
+  // 选题从「待评估」进入「在写」，已写/已发/放弃保持原状态
+  db.prepare(`
+    UPDATE topics SET status = CASE WHEN status = 'pending' THEN 'writing' ELSE status END,
+      updated_at = datetime('now','localtime') WHERE id = ?
+  `).run(topicId)
+  db.prepare('UPDATE scripts SET topic_id = ? WHERE id = ?').run(topicId, scriptId)
+}
+
+function unlinkTopics(scriptId) {
+  const row = db.prepare('SELECT topic_id FROM scripts WHERE id = ?').get(scriptId)
+  db.prepare('UPDATE scripts SET topic_id = NULL WHERE id = ?').run(scriptId)
+  if (!row?.topic_id) return
+  // 选题下还有别的脚本就别改状态，全没了才回到待评估
+  const left = db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE topic_id = ?').get(row.topic_id).n
+  if (left > 0) return
+  db.prepare(`
+    UPDATE topics SET status = CASE WHEN status IN ('writing','done') THEN 'pending' ELSE status END,
+      updated_at = datetime('now','localtime') WHERE id = ?
+  `).run(row.topic_id)
+}
+
 router.get('/list', (req, res) => {
   // 老脚本没回写 project_id，用「由脚本「xxx」自动生成分镜画布」这个描述兜底关联
   const rows = db.prepare(`
-    SELECT s.*, COALESCE(p.name, p2.name) AS project_name, COALESCE(p.id, p2.id) AS project_id_resolved
+    SELECT s.*, COALESCE(p.name, p2.name) AS project_name, COALESCE(p.id, p2.id) AS project_id_resolved,
+           t.title AS topic_title, t.status AS topic_status
     FROM scripts s
     LEFT JOIN projects p ON p.id = s.project_id
     LEFT JOIN projects p2 ON p2.description = '由脚本「' || s.title || '」自动生成分镜画布'
+    LEFT JOIN topics t ON t.id = s.topic_id
     ORDER BY s.updated_at DESC
   `).all()
   res.json({ items: rows })
 })
 
 router.post('/', (req, res) => {
-  const { title, content, projectId, source } = req.body || {}
+  const { title, content, projectId, source, topicId } = req.body || {}
   if (!title?.trim()) return res.status(400).json({ error: '标题不能为空' })
   const info = db
-    .prepare('INSERT INTO scripts (title, content, project_id, source) VALUES (?, ?, ?, ?)')
-    .run(title.trim(), content || '', projectId || null, source || 'manual')
+    .prepare('INSERT INTO scripts (title, content, project_id, source, topic_id) VALUES (?, ?, ?, ?, ?)')
+    .run(title.trim(), content || '', projectId || null, source || 'manual', topicId || null)
+  if (topicId) linkTopic(info.lastInsertRowid, topicId)
   res.json({ id: info.lastInsertRowid })
 })
 
 router.put('/:id', (req, res) => {
-  const { title, content } = req.body || {}
+  const { title, content, topicId } = req.body || {}
   const row = db.prepare('SELECT * FROM scripts WHERE id = ?').get(req.params.id)
   if (!row) return res.status(404).json({ error: '脚本不存在' })
   db.prepare("UPDATE scripts SET title = ?, content = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(
@@ -34,6 +65,8 @@ router.put('/:id', (req, res) => {
     content ?? row.content,
     req.params.id,
   )
+  // 只有显式带 topicId 才调整关联（null 表示解除）
+  if (topicId !== undefined) linkTopic(row.id, topicId || null)
   res.json({ ok: true })
 })
 
@@ -78,6 +111,8 @@ router.delete('/:id', (req, res) => {
     }
   }
 
+  // 选题上的关联一起解开，避免指向已删除的脚本
+  unlinkTopics(script.id)
   db.prepare('DELETE FROM scripts WHERE id = ?').run(script.id)
   res.json({ ok: true, removedNodes, removedProject, projectName })
 })

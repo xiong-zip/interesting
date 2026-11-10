@@ -79,6 +79,20 @@ function orderSceneItems(items, edges) {
   return ordered
 }
 
+// 素材 id 可能因为「移除后重新扫描」变化，id 失效时按文件名兜底
+function findMediaRow(mediaId, filename) {
+  if (mediaId != null) {
+    const row = db.prepare('SELECT * FROM media_files WHERE id = ?').get(mediaId)
+    if (row) return row
+  }
+  if (filename) {
+    return db
+      .prepare("SELECT * FROM media_files WHERE filename = ? AND removed_at IS NULL ORDER BY id DESC LIMIT 1")
+      .get(String(filename))
+  }
+  return null
+}
+
 // 生成剪辑计划：clips 按故事线顺序，剧情节点文字作为紧随其后的视频片段字幕
 function buildPlan(project) {
   const canvas = JSON.parse(project.canvas || '{}')
@@ -89,17 +103,21 @@ function buildPlan(project) {
   const rawStyle = canvas.subtitleStyle || {}
   const rawSize = Number(rawStyle.size)
   const rawPos = Number(rawStyle.position)
+  const rawPosX = Number(rawStyle.positionX)
+  const clampUnit = (v) => Math.max(-1, Math.min(1, v))
   const subtitleStyle = {
     font: String(rawStyle.font || ''),
     size: Number.isFinite(rawSize) && rawSize > 0 ? rawSize : 8.5,
     // 0 表示居中，不能用 || 兜底，否则居中会被当成「没设置」
-    position: Number.isFinite(rawPos) ? Math.max(-1, Math.min(1, rawPos)) : -0.66,
+    position: Number.isFinite(rawPos) ? clampUnit(rawPos) : -0.66,
+    positionX: Number.isFinite(rawPosX) ? clampUnit(rawPosX) : 0,
   }
   const applySubtitleStyle = (s) => ({
     text: s.text,
     font: s.font || subtitleStyle.font,
     size: subtitleStyle.size,
     position: subtitleStyle.position,
+    positionX: subtitleStyle.positionX,
   })
 
   const clips = []
@@ -107,11 +125,10 @@ function buildPlan(project) {
   let subtitles = []
   let bgm = null
 
-  const pushClip = (data, edgeData) => {
-    const mediaId = data?.mediaId
-    const row = mediaId != null ? db.prepare('SELECT * FROM media_files WHERE id = ?').get(mediaId) : null
+  const pushClip = (data, edgeData, nodeId = null) => {
+    const row = findMediaRow(data?.mediaId, data?.filename)
     if (!row || !fs.existsSync(row.filepath)) {
-      skipped.push(data?.filename || `素材 ${mediaId}`)
+      skipped.push(data?.filename || `素材 ${data?.mediaId}`)
       return
     }
     // 镜头自带的字幕：一行一条，和上游字幕节点累积的内容合并
@@ -134,6 +151,10 @@ function buildPlan(project) {
       speed: Number(data?.speed) || 1,
       volume: data?.volume != null ? Number(data.volume) : 1,
       filter: data?.filter || '',
+      // 画面位置：预览里拖动素材后写回节点，导出按半个画布为单位
+      transformX: clampUnit(Number(data?.transformX) || 0),
+      transformY: clampUnit(Number(data?.transformY) || 0),
+      nodeId,
       transition: edgeData?.transition || '',
       transitionDuration: edgeData?.transitionDuration || null,
     })
@@ -151,7 +172,7 @@ function buildPlan(project) {
   for (const node of ordered) {
     if (node.type === 'video') {
       // 该镜头之后的转场：取从该视频节点出发的第一条连线上的设置
-      pushClip(node.data, (canvas.edges || []).find((e) => e.source === node.id)?.data)
+      pushClip(node.data, (canvas.edges || []).find((e) => e.source === node.id)?.data, node.id)
     } else if (node.type === 'scene') {
       const outEdge = (canvas.edges || []).find((e) => e.source === node.id)
       const items = orderSceneItems(

@@ -1,5 +1,6 @@
 const express = require('express')
 const { spawn } = require('child_process')
+const db = require('../db')
 const router = express.Router()
 
 // 统一条目结构：{ platform, platformName, color, title, hot, url }
@@ -17,6 +18,35 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const TTL = 3 * 60 * 1000 // 数据保鲜期：超过则后台刷新
 const WARM_INTERVAL = 3 * 60 * 1000 // 后台预热周期
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// 标题归一化：去掉空格、话题符号和标点，用来跨平台合并同一条热点
+function normalizeTitle(raw) {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/[\s#【】\[\]（）()「」『』《》·、，。！？!?.,:：;；"'“”‘’\-—_/\\|]+/g, '')
+}
+
+// 记录热点历史：第一次见到的时间和热度、历史峰值、出现过的平台
+const getHistory = db.prepare('SELECT * FROM hot_history WHERE key = ?')
+const upsertHistory = db.prepare(`
+  INSERT INTO hot_history (key, title, hot_first, hot_peak, first_seen_at, last_seen_at, platforms)
+  VALUES (?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'), ?)
+  ON CONFLICT(key) DO UPDATE SET
+    last_seen_at = datetime('now','localtime'),
+    hot_peak = MAX(hot_peak, excluded.hot_peak),
+    platforms = excluded.platforms
+`)
+const recordHistory = db.transaction((items) => {
+  for (const it of items) {
+    const key = normalizeTitle(it.title)
+    if (!key) continue
+    const hot = Number(it.hot) || 0
+    const prev = getHistory.get(key)
+    const platforms = new Set(String(prev?.platforms || '').split(',').filter(Boolean))
+    platforms.add(it.platform)
+    upsertHistory.run(key, it.title, prev?.hot_first ?? hot, hot, [...platforms].join(','))
+  }
+})
 
 // 分平台缓存：失败的平台下次自动补抓，成功的数据保留
 const platformCache = Object.fromEntries(PLATFORMS.map((p) => [p.key, { at: 0, items: [] }]))
@@ -125,11 +155,14 @@ function warm(force = false) {
       try {
         const items = await fetchPlatform(p)
         platformCache[p.key] = { at: Date.now(), items }
+        recordHistory(items)
       } catch {
         // 失败保留旧缓存，下轮预热再补
       }
       await sleep(2500)
     }
+    // 历史只用于判断时效，一个月没再出现的清掉
+    db.prepare("DELETE FROM hot_history WHERE last_seen_at < datetime('now','localtime','-30 day')").run()
   })().finally(() => {
     warming = null
   })
@@ -144,19 +177,74 @@ function mockData() {
   const now = new Date().toLocaleString('zh-CN')
   return PLATFORMS.flatMap((p) =>
     [1, 2, 3, 4, 5].map((i) => ({
+      key: `${p.key}-mock-${i}`,
       platform: p.key,
       platformName: p.name,
       color: p.color,
       title: `【示例】${p.name}热点 ${i}（热榜接口不可用，${now} 生成模拟数据）`,
       hot: 1000000 - i * 100000,
+      score: 0,
       url: '',
+      platforms: [{ key: p.key, name: p.name, color: p.color, hot: 1000000 - i * 100000, url: '', rank: i }],
+      firstSeen: '',
+      hotFirst: 0,
+      hotPeak: 1000000 - i * 100000,
     })),
   )
 }
 
+// 跨平台合并：标题归一化后同组，综合分 = 各平台内部排名的百分位均值
+function mergedItems() {
+  const groups = new Map()
+  for (const p of PLATFORMS) {
+    const list = [...platformCache[p.key].items].sort((a, b) => (b.hot || 0) - (a.hot || 0))
+    const n = list.length || 1
+    list.forEach((it, idx) => {
+      const key = normalizeTitle(it.title)
+      if (!key) return
+      let g = groups.get(key)
+      if (!g) {
+        g = { key, title: it.title, platforms: [], scoreSum: 0, hot: 0 }
+        groups.set(key, g)
+      }
+      g.platforms.push({
+        key: p.key,
+        name: p.name,
+        color: p.color,
+        hot: Number(it.hot) || 0,
+        url: it.url || '',
+        rank: idx + 1,
+      })
+      g.scoreSum += 1 - idx / n
+      if ((it.hot || 0) > g.hot) g.hot = Number(it.hot) || 0
+    })
+  }
+  return [...groups.values()].map((g) => {
+    const platforms = g.platforms.sort((a, b) => b.hot - a.hot)
+    const primary = platforms[0]
+    const hist = getHistory.get(g.key)
+    return {
+      key: g.key,
+      title: g.title,
+      platform: primary.key,
+      platformName: primary.name,
+      color: primary.color,
+      url: primary.url,
+      hot: g.hot,
+      // 不同平台热度口径不同，混排用百分位而不是原始热度相加
+      score: Math.round((g.scoreSum / platforms.length) * 100),
+      platforms,
+      firstSeen: hist?.first_seen_at || '',
+      hotFirst: Number(hist?.hot_first) || 0,
+      hotPeak: Number(hist?.hot_peak) || g.hot,
+    }
+  })
+}
+
 function snapshot() {
-  const items = PLATFORMS.flatMap((p) => platformCache[p.key].items)
-  if (items.length === 0) return { items: mockData(), degraded: true }
+  const total = PLATFORMS.reduce((n, p) => n + platformCache[p.key].items.length, 0)
+  if (total === 0) return { items: mockData(), degraded: true }
+  const items = mergedItems().sort((a, b) => b.score - a.score || b.hot - a.hot)
   return { items, degraded: false }
 }
 

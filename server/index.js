@@ -9,6 +9,7 @@ const mediaRouter = require('./routes/media')
 const musicRouter = require('./routes/music')
 const projectsRouter = require('./routes/projects')
 const scriptsRouter = require('./routes/scripts')
+const topicsRouter = require('./routes/topics')
 const aiRouter = require('./routes/ai')
 const db = require('./db')
 
@@ -23,6 +24,7 @@ app.use('/api/media', mediaRouter)
 app.use('/api/music', musicRouter)
 app.use('/api/projects', projectsRouter)
 app.use('/api/scripts', scriptsRouter)
+app.use('/api/topics', topicsRouter)
 app.use('/api/ai', aiRouter)
 
 // 设置读写（后台管理）

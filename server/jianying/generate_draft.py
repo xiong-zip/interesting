@@ -82,12 +82,16 @@ def main():
         src_duration = out_us - in_us
         speed = float(clip.get("speed") or 1)
         duration = max(SEC // 30, int(src_duration / speed))
+        # 画面位置：预览里拖动素材写回的值，单位为半个画布
+        tx = max(-1.0, min(1.0, num_or(clip.get("transformX"), 0.0)))
+        ty = max(-1.0, min(1.0, num_or(clip.get("transformY"), 0.0)))
         segment = draft.VideoSegment(
             material,
             draft.Timerange(cursor, duration),
             source_timerange=draft.Timerange(in_us, src_duration),
             speed=speed if speed != 1 else None,
             volume=max(0.0, min(1.0, float(clip.get("volume", 1)))),
+            clip_settings=draft.ClipSettings(transform_x=tx, transform_y=ty) if (tx or ty) else None,
         )
         # 以库实际计算出的时长推进时间轴，避免变速换算的取整误差造成 1 微秒重叠
         duration = int(segment.target_timerange.duration)
@@ -132,7 +136,8 @@ def main():
         for (s_start, s_dur), sub in zip(slots, subs):
             # 字号 / 位置由画布统一指定，缺省时回落到原来的样式
             sub_size = num_or(sub.get("size"), 8.5)
-            sub_y = num_or(sub.get("position"), -0.66)
+            sub_y = max(-1.0, min(1.0, num_or(sub.get("position"), -0.66)))
+            sub_x = max(-1.0, min(1.0, num_or(sub.get("positionX"), 0.0)))
             text = draft.TextSegment(
                 wrap_subtitle(sub["text"]),
                 draft.Timerange(s_start, s_dur),
@@ -140,7 +145,7 @@ def main():
                 style=draft.TextStyle(size=sub_size, bold=True, align=1, letter_spacing=1, line_spacing=2),
                 border=draft.TextBorder(color=(0.0, 0.0, 0.0), width=45.0),
                 shadow=draft.TextShadow(alpha=0.55, color=(0.0, 0.0, 0.0), diffuse=8.0, distance=3.0, angle=-45.0),
-                clip_settings=draft.ClipSettings(transform_y=max(-1.0, min(1.0, sub_y))),
+                clip_settings=draft.ClipSettings(transform_x=sub_x, transform_y=sub_y),
             )
             text.add_animation(draft.TextIntro.渐显, 0.4)
             text.add_animation(draft.TextOutro.渐隐, 0.3)

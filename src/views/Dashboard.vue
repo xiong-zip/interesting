@@ -68,9 +68,15 @@ const platforms = computed(() => {
   return [...map.entries()].map(([key, name]) => ({ key, name }))
 })
 const hotShown = computed(() => {
-  const list = hotPlatform.value ? hotAll.value.filter((i) => i.platform === hotPlatform.value) : hotAll.value
-  // 按热度从高到低排序（全部 = 跨平台综合排行）
-  return [...list].sort((a, b) => (Number(b.hot) || 0) - (Number(a.hot) || 0)).slice(0, 6)
+  if (!hotPlatform.value) {
+    // 全部：按跨平台综合分排，避免不同口径的热度直接相加
+    return [...hotAll.value].sort((a, b) => (b.score || 0) - (a.score || 0) || (b.hot || 0) - (a.hot || 0)).slice(0, 6)
+  }
+  const hotOf = (row) => (row.platforms || []).find((p) => p.key === hotPlatform.value)?.hot || 0
+  return hotAll.value
+    .filter((row) => (row.platforms || []).some((p) => p.key === hotPlatform.value))
+    .sort((a, b) => hotOf(b) - hotOf(a))
+    .slice(0, 6)
 })
 
 function formatHot(n) {

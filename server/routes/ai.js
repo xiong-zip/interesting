@@ -6,18 +6,24 @@ function getSetting(key) {
   return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value
 }
 
-function buildPrompt({ topic, hotTitle, videos, notes, style, duration }) {
-  const subject = hotTitle || topic || ''
+function buildPrompt({ topic, hotTitle, scriptTitle, videos, notes, style, duration, draft }) {
+  // 有脚本标题就围绕标题写，其次才是热点/选题
+  const subject = scriptTitle || hotTitle || topic || ''
   const parts = [
     `你是一位资深短视频/自媒体脚本编剧。请严格围绕主题「${subject}」创作，全文所有标题、口播、分镜都必须紧扣这个主题，禁止替换成其他主题。`,
   ]
   if (hotTitle) parts.push(`\n【蹭热点】当前热点：${hotTitle}`)
-  if (topic) parts.push(`\n【主题】${topic}`)
+  if (scriptTitle) parts.push(`\n【脚本标题】${scriptTitle}\n开头钩子和分镜都要服务于这个标题，不要写成另一个主题。`)
+  if (topic) parts.push(`\n【主题/角度】${topic}`)
   if (videos?.length) {
     parts.push('\n【可用视频素材】\n' + videos.map((v, i) => `${i + 1}. ${v.filename}${v.note ? `（${v.note}）` : ''}`).join('\n'))
     parts.push('脚本中请在合适的分镜处标注使用哪条素材（如：[素材1]）。')
   }
   if (notes) parts.push(`\n【剧情笔记（来自画布）】\n${notes}`)
+  if (draft) {
+    parts.push(`\n【待润色草稿】\n${draft}`)
+    parts.push('\n请在保留原意和分镜结构的前提下润色：补强开头钩子、让口播更口语、节奏更紧，输出完整脚本，不要只给修改说明。')
+  }
   parts.push(`\n【要求】风格：${style || '口语化、有网感'}；时长：${duration || '60秒左右'}。`)
   parts.push('\n输出格式：\n1. 标题（3 个备选）\n2. 开头钩子\n3. 分镜脚本（镜号/画面/口播/字幕/素材标注）\n4. 结尾互动引导')
   return parts.join('\n')

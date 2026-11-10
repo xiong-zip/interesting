@@ -5,15 +5,25 @@
         <video
           ref="videoEl"
           class="video"
-          :style="{ filter: currentFilter }"
+          :style="{ filter: currentFilter, transform: videoTransform }"
           playsinline
+          @pointerdown="startDrag($event, 'video')"
           @loadedmetadata="onMeta"
           @error="onError"
         />
         <div v-if="loading" class="overlay">正在加载素材…</div>
-        <div v-else-if="!clips.length" class="overlay">{{ errorTip || '画布上还没有可预览的素材' }}</div>
+        <div v-else-if="!clips.length" class="overlay">
+          <div>{{ errorTip || '画布上还没有可预览的素材' }}</div>
+          <div v-if="missing.length" class="overlay-sub">找不到这些素材：{{ missing.join('、') }}</div>
+          <div v-if="missing.length" class="overlay-sub">素材可能在媒体库被移除，或磁盘文件已不在</div>
+        </div>
         <button v-else-if="!playing" class="play-btn" @click="togglePlay">▶</button>
-        <div v-if="currentSubtitle" class="subtitle" :style="subtitleCss">{{ currentSubtitle }}</div>
+        <div
+          v-if="currentSubtitle"
+          class="subtitle"
+          :style="subtitleCss"
+          @pointerdown="startDrag($event, 'subtitle')"
+        >{{ currentSubtitle }}</div>
         <div v-if="currentLyric" class="lyric-overlay">{{ currentLyric }}</div>
         <div v-if="errorTip && clips.length" class="err">{{ errorTip }}</div>
       </div>
@@ -24,9 +34,12 @@
         {{ playing ? '⏸ 暂停' : '▶ 播放' }}
       </el-button>
       <el-button size="small" :disabled="!clips.length" @click="seekTo(0)">⏮ 回到开头</el-button>
+      <el-button size="small" :disabled="!clips.length" @click="resetVideo">复位画面</el-button>
+      <el-button size="small" :disabled="!currentSubtitle" @click="resetSubtitle">复位字幕</el-button>
       <span class="time">{{ fmt(position) }} / {{ fmt(totalDuration) }}</span>
       <span class="hint">
-        草稿比例：{{ sizeLabel }}<template v-if="mismatched">（{{ mismatched }} 个素材比例不同会被裁切）</template>
+        画面和字幕可以直接拖动调整位置
+        · 草稿比例：{{ sizeLabel }}<template v-if="mismatched">（{{ mismatched }} 个素材比例不同会被裁切）</template><template v-if="missing.length"> · {{ missing.length }} 个镜头素材缺失</template>
         · 转场、滤镜、字幕为近似预览，最终效果以剪映草稿为准
       </span>
     </div>
@@ -68,8 +81,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api'
+import { subtitleFontCss } from '../../utils/subtitleFont'
 
 const props = defineProps({ projectId: [Number, String] })
+const emit = defineEmits(['update-shot', 'update-subtitle-style'])
 
 const FILTERS = {
   清透自然: 'saturate(1.15) contrast(1.05)',
@@ -99,22 +114,31 @@ const currentIndex = ref(0)
 const position = ref(0)
 const totalDuration = ref(0)
 const errorTip = ref('')
+// 预览计划里被跳过的镜头（素材找不到）
+const missing = ref([])
 const transitionClass = ref('')
 const planSize = ref({ width: 1080, height: 1920 })
 const orientation = ref('portrait')
 const mismatched = ref(0)
 // 全片字幕样式（字体 / 字号 / 位置），由画布的「字幕样式」设置决定
-const subtitleStyle = ref({ font: '', size: 8.5, position: -0.66 })
+const subtitleStyle = ref({ font: '', size: 8.5, position: -0.66, positionX: 0 })
+// 画面尺寸：拖动换算用，stage 是自适应宽高
+const stageSize = ref({ w: 0, h: 0 })
+let stageObserver = null
 const subtitleCss = computed(() => {
   const s = subtitleStyle.value || {}
   const size = Number(s.size) > 0 ? Number(s.size) : 8.5
   const pos = Number.isFinite(Number(s.position)) ? Math.max(-1, Math.min(1, Number(s.position))) : -0.66
+  const posX = Number.isFinite(Number(s.positionX)) ? Math.max(-1, Math.min(1, Number(s.positionX))) : 0
   return {
-    fontFamily: s.font ? `"${s.font}", "PingFang SC", "Microsoft YaHei", sans-serif` : '',
+    // 字体用系统近似，保证不同字体在预览里有可见差别
+    ...subtitleFontCss(s.font),
     // 预览按默认字号 8.5 ≈ 20px 等比换算，只求相对大小一致
     fontSize: `${Math.round((20 * size) / 8.5 * 10) / 10}px`,
     // transform_y 以画面中心为 0，换算成距底部的百分比
     bottom: `${((0.5 + pos * 0.5) * 100).toFixed(1)}%`,
+    // 横向位移，单位同样是半个画面宽
+    transform: `translateX(${((posX * stageSize.value.w) / 2).toFixed(1)}px)`,
   }
 })
 
@@ -129,6 +153,87 @@ const currentFilter = computed(() => {
   const c = clips.value[currentIndex.value]
   return FILTERS[c?.filter] || FILTERS['清透自然']
 })
+// 画面位移：剪映的 transform 单位是半个画布
+const videoTransform = computed(() => {
+  const c = clips.value[currentIndex.value]
+  if (!c) return 'translate(0px, 0px)'
+  const x = (Number(c.transformX) || 0) * (stageSize.value.w / 2)
+  // 剪映的 transform_y 以向上为正，和 CSS 的 translateY 相反
+  const y = -(Number(c.transformY) || 0) * (stageSize.value.h / 2)
+  return `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
+})
+
+/* ---------------- 画面 / 字幕：直接在预览上拖动 ---------------- */
+let dragState = null
+const clampUnit = (v) => Math.max(-1, Math.min(1, v))
+const round3 = (v) => Math.round(v * 1000) / 1000
+
+function startDrag(e, type) {
+  if (e.button != null && e.button !== 0) return
+  const c = clips.value[currentIndex.value]
+  if (!c) return
+  if (playing.value) togglePlay()
+  dragState = {
+    type,
+    startX: e.clientX,
+    startY: e.clientY,
+    baseX: type === 'video' ? Number(c.transformX) || 0 : Number(subtitleStyle.value.positionX) || 0,
+    baseY: type === 'video' ? Number(c.transformY) || 0 : Number(subtitleStyle.value.position) || 0,
+    moved: false,
+  }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', endDrag)
+  e.preventDefault()
+}
+function onDragMove(e) {
+  const d = dragState
+  if (!d) return
+  const dx = e.clientX - d.startX
+  const dy = e.clientY - d.startY
+  if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return
+  d.moved = true
+  const halfW = stageSize.value.w / 2 || 1
+  const halfH = stageSize.value.h / 2 || 1
+  const nx = clampUnit(d.baseX + dx / halfW)
+  // 鼠标向下 = 画面/字幕向下 = transform_y 减小（剪映以向上为正）
+  const ny = clampUnit(d.baseY - dy / halfH)
+  if (d.type === 'video') {
+    const c = clips.value[currentIndex.value]
+    if (c) {
+      c.transformX = nx
+      c.transformY = ny
+    }
+  } else {
+    subtitleStyle.value = { ...subtitleStyle.value, positionX: nx, position: ny }
+  }
+}
+function endDrag() {
+  const d = dragState
+  dragState = null
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', endDrag)
+  if (!d?.moved) return
+  if (d.type === 'video') {
+    const c = clips.value[currentIndex.value]
+    if (c?.nodeId) emit('update-shot', { nodeId: c.nodeId, transformX: round3(c.transformX), transformY: round3(c.transformY) })
+  } else {
+    emit('update-subtitle-style', {
+      positionX: round3(subtitleStyle.value.positionX),
+      position: round3(subtitleStyle.value.position),
+    })
+  }
+}
+function resetVideo() {
+  const c = clips.value[currentIndex.value]
+  if (!c) return
+  c.transformX = 0
+  c.transformY = 0
+  if (c.nodeId) emit('update-shot', { nodeId: c.nodeId, transformX: 0, transformY: 0 })
+}
+function resetSubtitle() {
+  subtitleStyle.value = { ...subtitleStyle.value, positionX: 0, position: -0.66 }
+  emit('update-subtitle-style', { positionX: 0, position: -0.66 })
+}
 const currentSubtitle = computed(() => {
   const c = clips.value[currentIndex.value]
   if (!c) return ''
@@ -198,11 +303,22 @@ function buildSubs(subs, playDur, clipStart) {
 }
 
 onMounted(async () => {
+  // stage 尺寸变化时同步，拖动位移按半个画面换算
+  if (stageEl.value) {
+    const measure = () => {
+      const rect = stageEl.value.getBoundingClientRect()
+      stageSize.value = { w: rect.width, h: rect.height }
+    }
+    stageObserver = new ResizeObserver(measure)
+    stageObserver.observe(stageEl.value)
+    measure()
+  }
   try {
     const { data } = await api.get(`/projects/${props.projectId}/preview-plan`)
     if (data.width && data.height) planSize.value = { width: data.width, height: data.height }
     orientation.value = data.orientation || 'portrait'
     mismatched.value = data.mismatched || 0
+    missing.value = data.skipped || []
     subtitleStyle.value = data.subtitleStyle || subtitleStyle.value
     lyrics.value = (data.lyrics || []).filter((l) => (l.text || '').trim())
     const durations = await Promise.all(data.clips.map((c) => probe(c.src)))
@@ -405,6 +521,10 @@ function onTimelineClick(e) {
 }
 
 onUnmounted(() => {
+  stageObserver?.disconnect()
+  stageObserver = null
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', endDrag)
   cancelAnimationFrame(raf)
   clearTimeout(transitionTimer)
   videoEl.value?.pause()
@@ -426,11 +546,13 @@ onUnmounted(() => {
   border-radius: 10px;
   overflow: hidden;
 }
-.video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.video { width: 100%; height: 100%; object-fit: contain; display: block; cursor: grab; user-select: none; touch-action: none; }
 .overlay {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
   align-items: center;
   justify-content: center;
   color: #ddd;
@@ -439,6 +561,7 @@ onUnmounted(() => {
   padding: 0 24px;
   background: rgba(0, 0, 0, 0.35);
 }
+.overlay-sub { font-size: 12px; color: #bbb; }
 .play-btn {
   position: absolute;
   left: 50%;
@@ -467,7 +590,10 @@ onUnmounted(() => {
   font-size: 20px;
   line-height: 1.35;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9), 0 0 2px #000;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
   white-space: pre-wrap;
 }
 .err {

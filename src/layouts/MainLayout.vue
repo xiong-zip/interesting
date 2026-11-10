@@ -5,6 +5,7 @@
       <el-menu router :default-active="$route.path" class="menu">
         <el-menu-item index="/dashboard"><el-icon><Monitor /></el-icon>工作台</el-menu-item>
         <el-menu-item index="/hot"><el-icon><TrendCharts /></el-icon>热点中心</el-menu-item>
+        <el-menu-item index="/topics"><el-icon><Collection /></el-icon>选题池</el-menu-item>
         <el-menu-item index="/media"><el-icon><VideoCamera /></el-icon>媒体库</el-menu-item>
         <el-menu-item index="/music"><el-icon><Headset /></el-icon>音乐库</el-menu-item>
         <el-menu-item index="/canvas"><el-icon><Grid /></el-icon>剧情画布</el-menu-item>
@@ -17,7 +18,7 @@
 </template>
 
 <script setup>
-import { Monitor, TrendCharts, VideoCamera, Headset, Grid, Document, Setting } from '@element-plus/icons-vue'
+import { Monitor, TrendCharts, VideoCamera, Headset, Grid, Document, Setting, Collection } from '@element-plus/icons-vue'
 </script>
 
 <style scoped>

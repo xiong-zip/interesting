@@ -84,12 +84,16 @@ router.get('/:id/preview-plan', (req, res) => {
       const clipBgmId = c.bgmPath ? findMusic.get(c.bgmPath)?.id : null
       return {
         src: mediaId ? `/api/media/stream/${mediaId}` : '',
+        nodeId: c.nodeId || null,
         filename: c.filename,
         inPoint: c.inPoint || 0,
         outPoint: c.outPoint || 0,
         speed: c.speed || 1,
         volume: c.volume != null ? c.volume : 1,
         filter: c.filter || '',
+        // 预览里拖动画面用，单位是半个画布
+        transformX: c.transformX || 0,
+        transformY: c.transformY || 0,
         transition: c.transition || '',
         transitionDuration: c.transitionDuration || null,
         subtitles: c.subtitles || [],

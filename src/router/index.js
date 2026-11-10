@@ -8,6 +8,7 @@ const routes = [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('../views/Dashboard.vue') },
       { path: 'hot', component: () => import('../views/Hot.vue') },
+      { path: 'topics', component: () => import('../views/Topics.vue') },
       { path: 'media', component: () => import('../views/Media.vue') },
       { path: 'music', component: () => import('../views/Music.vue') },
       { path: 'canvas', component: () => import('../views/Canvas.vue') },

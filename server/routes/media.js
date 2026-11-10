@@ -89,22 +89,96 @@ router.post('/probe', async (req, res) => {
   res.json(await probeMissing())
 })
 
+// 标签统一解析：中文/英文逗号、顿号、空格都算分隔符
+function parseTags(raw) {
+  return String(raw || '')
+    .split(/[,，、;；\s]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+}
+
+// 素材使用情况：扫一遍项目画布里的 mediaId，返回 id -> { count, lastUsed }
+function mediaUsage() {
+  const usage = new Map()
+  const projects = db.prepare('SELECT id, canvas, updated_at FROM projects').all()
+  for (const p of projects) {
+    let canvas = {}
+    try {
+      canvas = JSON.parse(p.canvas || '{}')
+    } catch {
+      continue
+    }
+    const ids = new Set()
+    for (const node of canvas.nodes || []) {
+      if (node.data?.mediaId) ids.add(node.data.mediaId)
+      for (const it of node.data?.items || []) if (it.mediaId) ids.add(it.mediaId)
+    }
+    for (const id of ids) {
+      const cur = usage.get(id) || { count: 0, lastUsed: '' }
+      cur.count++
+      if ((p.updated_at || '') > cur.lastUsed) cur.lastUsed = p.updated_at || ''
+      usage.set(id, cur)
+    }
+  }
+  return usage
+}
+
 router.get('/list', (req, res) => {
   const library = req.query.library === 'asset' ? 'asset' : 'media'
-  const rows = db.prepare('SELECT * FROM media_files WHERE COALESCE(library, \'media\') = ? ORDER BY scanned_at DESC').all(library)
-  // 按文件修改时间归组（更接近拍摄日期）
+  const removed = req.query.removed === '1'
+  // 回收站不按库过滤：误删时多半记不清当初放在哪个库，全部列出来更好找
+  const rows = removed
+    ? db
+        .prepare('SELECT * FROM media_files WHERE removed_at IS NOT NULL ORDER BY removed_at DESC')
+        .all()
+    : db
+        .prepare(
+          `SELECT * FROM media_files
+           WHERE COALESCE(library, 'media') = ? AND removed_at IS NULL
+           ORDER BY scanned_at DESC`,
+        )
+        .all(library)
+
+  const usage = mediaUsage()
+  // 疑似重复：大小 + 时长都相同（时长未知的先不判）
+  const dupMap = new Map()
+  for (const row of rows) {
+    if (!row.size || !row.duration) continue
+    const key = `${row.size}|${Math.round(Number(row.duration))}`
+    if (!dupMap.has(key)) dupMap.set(key, [])
+    dupMap.get(key).push(row.id)
+  }
+  const dupIds = new Set([...dupMap.values()].filter((ids) => ids.length > 1).flat())
+
+  // 按文件修改时间归组（更接近拍摄日期），同时标记磁盘上是否还在
   const items = rows.map((row) => {
     let date = (row.scanned_at || '').slice(0, 10)
+    let missing = false
     try {
       const st = fs.statSync(row.filepath)
       const d = new Date(st.mtime)
       const p = (n) => String(n).padStart(2, '0')
       date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-    } catch {}
-    return { ...row, date }
+    } catch {
+      missing = true
+    }
+    const used = usage.get(row.id)
+    return {
+      ...row,
+      date,
+      missing,
+      tagList: parseTags(row.tags),
+      usedCount: used?.count || 0,
+      lastUsed: used?.lastUsed || '',
+      duplicate: dupIds.has(row.id),
+    }
   })
   items.sort((a, b) => (a.date === b.date ? b.id - a.id : b.date.localeCompare(a.date)))
-  res.json({ items, mediaDir: mediaDir(), assetDir: assetDir() })
+
+  // 标签补全用：所有在用素材里出现过的标签（不受当前库/回收站筛选影响）
+  const tagRows = db.prepare('SELECT tags FROM media_files WHERE removed_at IS NULL').all()
+  const allTags = [...new Set(tagRows.flatMap((r) => parseTags(r.tags)))].sort((a, b) => a.localeCompare(b, 'zh'))
+  res.json({ items, mediaDir: mediaDir(), assetDir: assetDir(), allTags })
 })
 
 // 在媒体库与素材库之间移动（真实移动磁盘文件）
@@ -175,13 +249,21 @@ router.post('/open/:id', (req, res) => {
 
 router.put('/:id', (req, res) => {
   const { tags, note } = req.body || {}
-  db.prepare('UPDATE media_files SET tags = ?, note = ? WHERE id = ?').run(tags || '', note || '', req.params.id)
+  // 标签统一存成英文逗号分隔，前端传数组也兼容
+  const tagText = Array.isArray(tags) ? tags.join(',') : tags || ''
+  db.prepare('UPDATE media_files SET tags = ?, note = ? WHERE id = ?').run(tagText, note || '', req.params.id)
   res.json({ ok: true })
 })
 
+// 移除索引（软删）：保留记录和 removed_at，扫描到同一个文件路径也不会再显示
 router.delete('/:id', (req, res) => {
-  // 仅移除索引，不删除磁盘文件
-  db.prepare('DELETE FROM media_files WHERE id = ?').run(req.params.id)
+  db.prepare("UPDATE media_files SET removed_at = datetime('now','localtime') WHERE id = ?").run(req.params.id)
+  res.json({ ok: true })
+})
+
+// 回收站恢复：清掉 removed_at 就重新出现在素材库里
+router.post('/:id/restore', (req, res) => {
+  db.prepare('UPDATE media_files SET removed_at = NULL WHERE id = ?').run(req.params.id)
   res.json({ ok: true })
 })
 

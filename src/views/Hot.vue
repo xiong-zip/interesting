@@ -17,22 +17,37 @@
 
     <el-table :data="filtered" v-loading="loading" stripe>
       <el-table-column label="排名" width="70" type="index" />
-      <el-table-column label="平台" width="100">
+      <el-table-column label="平台" width="150">
         <template #default="{ row }">
-          <el-tag :color="row.color" style="color: #fff; border: none" size="small">{{ row.platformName }}</el-tag>
+          <el-tag
+            v-for="p in row.platforms || []"
+            :key="p.key"
+            :color="p.color"
+            style="color: #fff; border: none; margin-right: 4px"
+            size="small"
+          >{{ p.name }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="标题" min-width="320">
+      <el-table-column label="标题" min-width="300">
         <template #default="{ row }">
           <a v-if="row.url" :href="row.url" target="_blank" class="title-link" @click.prevent="openExternal(row)">{{ row.title }}</a>
           <span v-else>{{ row.title }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="热度" prop="hot" width="130" sortable>
-        <template #default="{ row }">{{ row.hot ? row.hot.toLocaleString() : '-' }}</template>
+      <el-table-column label="综合" width="80" sortable>
+        <template #default="{ row }">{{ row.score || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="160">
+      <el-table-column label="热度" width="140" sortable>
         <template #default="{ row }">
+          <div>{{ row.hot ? row.hot.toLocaleString() : '-' }}</div>
+          <div v-if="row.firstSeen" class="muted">首次 {{ row.firstSeen.slice(5, 10) }} · 峰值 {{ fmtHot(row.hotPeak) }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="200">
+        <template #default="{ row }">
+          <el-button size="small" :disabled="inPool(row)" @click="addTopic(row)">
+            {{ inPool(row) ? '已加入选题' : '加入选题' }}
+          </el-button>
           <el-button size="small" type="primary" plain @click="generate(row)">生成脚本</el-button>
         </template>
       </el-table-column>
@@ -82,11 +97,52 @@ const degraded = ref(false)
 
 const styles = ['口语化、有网感', '专业干货', '幽默搞笑', '情感共鸣', '悬念反转']
 
-// 全部/单平台都按热度从高到低排序
+// 热门榜：全部按综合分排（各平台百分位），单平台按该平台热度排
 const filtered = computed(() => {
-  const list = platform.value ? items.value.filter((i) => i.platform === platform.value) : items.value
-  return [...list].sort((a, b) => (b.hot || 0) - (a.hot || 0))
+  if (!platform.value) {
+    return [...items.value].sort((a, b) => (b.score || 0) - (a.score || 0) || (b.hot || 0) - (a.hot || 0))
+  }
+  const hotOf = (row) => (row.platforms || []).find((p) => p.key === platform.value)?.hot || 0
+  return items.value
+    .filter((row) => (row.platforms || []).some((p) => p.key === platform.value))
+    .sort((a, b) => hotOf(b) - hotOf(a))
 })
+
+function fmtHot(n) {
+  const v = Number(n) || 0
+  if (!v) return '-'
+  if (v >= 1e8) return `${(v / 1e8).toFixed(1)} 亿`
+  if (v >= 1e4) return `${(v / 1e4).toFixed(0)} 万`
+  return String(v)
+}
+
+// 选题池里的标题，用来把「加入选题」变成已加入
+const topics = ref([])
+const topicByTitle = computed(() => new Map(topics.value.map((t) => [t.title, t])))
+function inPool(row) {
+  return topicByTitle.value.has(row.title)
+}
+async function loadTopics() {
+  try {
+    const { data } = await api.get('/topics/list')
+    topics.value = data.items || []
+  } catch {
+    /* 选题池未初始化时不影响热榜 */
+  }
+}
+async function addTopic(row) {
+  const { data } = await api.post('/topics', {
+    title: row.title,
+    url: row.url,
+    platform: row.platform,
+    platforms: (row.platforms || []).map((p) => p.key).join(','),
+    hotFirst: row.hotFirst || row.hot,
+    hotPeak: row.hotPeak || row.hot,
+    firstSeenAt: row.firstSeen,
+  })
+  ElMessage.success(data.existed ? '这条已经在选题池里' : '已加入选题池')
+  await loadTopics()
+}
 
 async function load() {
   loading.value = true
@@ -144,7 +200,14 @@ async function doGenerate() {
 
 async function saveScript() {
   const title = genForm.value.hotTitle.slice(0, 50)
-  const { data: saved } = await api.post('/scripts', { title, content: genResult.value, source: 'ai' })
+  const topic = topicByTitle.value.get(genForm.value.hotTitle)
+  // 来自选题池的，建脚本时就把选题带上，两边关联一次建好
+  const { data: saved } = await api.post('/scripts', {
+    title,
+    content: genResult.value,
+    source: 'ai',
+    topicId: topic ? topic.id : null,
+  })
   dialogVisible.value = false
   // 分镜自动上画布：每个镜头一个节点，顺序连成故事线
   const { data: cv } = await api.post(`/scripts/${saved.id}/to-canvas`, {})
@@ -159,6 +222,7 @@ async function saveScript() {
 
 onMounted(async () => {
   load()
+  loadTopics()
   try {
     const { data } = await api.get('/hot/platforms')
     platforms.value = data

@@ -19,10 +19,10 @@
 ```bash
 npm install
 python -m pip install pyJianYingDraft imageio-ffmpeg   # 剪映草稿导出 + 视频封面抽帧
-npm run dev        # 同时启动后端(3001)与前端(5173)
+npm run dev        # 同时启动后端(3001)与前端(7200)
 ```
 
-打开 http://localhost:5173 即可使用，无需登录。
+打开 http://localhost:7200 即可使用，无需登录。
 
 ## 配置
 
