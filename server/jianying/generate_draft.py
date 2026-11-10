@@ -23,6 +23,15 @@ def enum_member(enum_cls, name, fallback):
     return getattr(enum_cls, name, None) or getattr(enum_cls, fallback)
 
 
+def num_or(value, fallback):
+    """计划里的数值可能是字符串或 null，解析失败时回落到默认样式。"""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return n if n == n and abs(n) != float("inf") else fallback
+
+
 def wrap_subtitle(text):
     """长句在中间标点处断成两行，提升可读性。"""
     text = (text or "").strip()
@@ -121,14 +130,17 @@ def main():
             slot = duration // len(subs)
             slots = [(start + i * slot, slot if i < len(subs) - 1 else duration - i * slot) for i in range(len(subs))]
         for (s_start, s_dur), sub in zip(slots, subs):
+            # 字号 / 位置由画布统一指定，缺省时回落到原来的样式
+            sub_size = num_or(sub.get("size"), 8.5)
+            sub_y = num_or(sub.get("position"), -0.66)
             text = draft.TextSegment(
                 wrap_subtitle(sub["text"]),
                 draft.Timerange(s_start, s_dur),
                 font=enum_member(draft.FontType, sub.get("font") or "抖音美好体", "抖音美好体"),
-                style=draft.TextStyle(size=8.5, bold=True, align=1, letter_spacing=1, line_spacing=2),
+                style=draft.TextStyle(size=sub_size, bold=True, align=1, letter_spacing=1, line_spacing=2),
                 border=draft.TextBorder(color=(0.0, 0.0, 0.0), width=45.0),
                 shadow=draft.TextShadow(alpha=0.55, color=(0.0, 0.0, 0.0), diffuse=8.0, distance=3.0, angle=-45.0),
-                clip_settings=draft.ClipSettings(transform_y=-0.66),
+                clip_settings=draft.ClipSettings(transform_y=max(-1.0, min(1.0, sub_y))),
             )
             text.add_animation(draft.TextIntro.渐显, 0.4)
             text.add_animation(draft.TextOutro.渐隐, 0.3)

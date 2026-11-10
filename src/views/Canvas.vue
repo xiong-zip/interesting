@@ -21,6 +21,7 @@
       <el-button v-if="projectId" size="small" @click="organize">⚡ 一键整理</el-button>
       <el-button v-if="projectId" size="small" @click="toggleTextSummary">{{ showTextSummary ? '📝 摘要开' : '📝 摘要关' }}</el-button>
       <el-button v-if="projectId" size="small" @click="kbVisible = true">⌨️ 快捷键</el-button>
+      <el-button v-if="projectId" size="small" @click="openSubtitleStyle">🎨 字幕样式</el-button>
       <el-button v-if="projectId" type="primary" size="small" :loading="saving" @click="save">
         保存{{ dirty ? ' *' : '' }}
       </el-button>
@@ -124,6 +125,7 @@
           />
           <div class="field-actions">
             <el-button size="small" text type="primary" @click="appendSubtitleLine">＋ 添加一条字幕</el-button>
+            <el-button size="small" text @click="openSubtitleStyle">🎨 全片样式</el-button>
             <span class="field-hint">一行 = 一条字幕</span>
           </div>
         </div>
@@ -189,6 +191,49 @@
           <template #reference><el-button type="danger" plain>删除节点</el-button></template>
         </el-popconfirm>
         <el-button type="primary" @click="confirmEdit">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 全局字幕样式：文字仍写在镜头里，字体 / 字号 / 位置全片统一 -->
+    <el-dialog v-model="subtitleStyleVisible" title="🎨 字幕样式（全片统一）" width="min(660px, 96vw)">
+      <div class="sub-style-body">
+        <!-- 9:16 画面预览：字号 / 位置按剪映画布比例换算，调参数即时看效果 -->
+        <div class="sub-preview">
+          <div class="sub-frame">
+            <span class="sub-sample" :style="subtitlePreviewCss">{{ subtitleSample }}</span>
+          </div>
+          <div class="sub-preview-tip">9:16 预览 · 以剪映实际字号等比换算</div>
+        </div>
+        <el-form label-width="64px" class="sub-form">
+          <el-form-item label="字体">
+            <el-select v-model="subtitleStyleForm.font" placeholder="默认（抖音美好体）" clearable style="width: 100%">
+              <el-option v-for="f in fonts" :key="f" :label="f" :value="f" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="字号">
+            <el-slider v-model="subtitleStyleForm.size" :min="4" :max="16" :step="0.5" show-input />
+          </el-form-item>
+          <el-form-item label="位置">
+            <el-radio-group v-model="subtitlePreset">
+              <el-radio-button value="top">顶部</el-radio-button>
+              <el-radio-button value="center">居中</el-radio-button>
+              <el-radio-button value="bottom">底部</el-radio-button>
+              <el-radio-button value="custom">自定义</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="subtitlePreset === 'custom'" label="Y 偏移">
+            <el-input-number v-model="subtitleStyleForm.position" :min="-1" :max="1" :step="0.05" style="width: 100%" />
+          </el-form-item>
+          <el-alert
+            type="info"
+            :closable="false"
+            title="字幕文字仍写在镜头里（一行一条，按镜头时长均分），这里只统一全片的字体、字号和上下位置；单条字幕卡片自己选了字体时以卡片为准"
+          />
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="subtitleStyleVisible = false">取消</el-button>
+        <el-button type="primary" @click="applySubtitleStyle">应用</el-button>
       </template>
     </el-dialog>
 
@@ -1153,6 +1198,66 @@ function saveBoard() {
 /* ---------------- 镜头 / 转场设置 ---------------- */
 const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 const fonts = ['抖音美好体', '思源粗宋', '站酷文艺体', '得意黑', '庞门正道标题体', '无界黑', '优设标题黑', '未来黑', '快乐体']
+
+/* ---------------- 全片字幕样式 ---------------- */
+// 字幕文字写在镜头里，字体 / 字号 / 位置存进画布 JSON，导出和预览都读这一份
+const DEFAULT_SUBTITLE_STYLE = { font: '', size: 8.5, position: -0.66 }
+const subtitleStyle = ref({ ...DEFAULT_SUBTITLE_STYLE })
+const subtitleStyleForm = ref({ ...DEFAULT_SUBTITLE_STYLE })
+const subtitleStyleVisible = ref(false)
+// 位置预设：顶部 0.6、居中 0、底部 -0.66，落在中间就是自定义
+const subtitlePreset = computed({
+  get() {
+    const p = Number(subtitleStyleForm.value.position)
+    if (p >= 0.45) return 'top'
+    if (p <= -0.45) return 'bottom'
+    if (Math.abs(p) <= 0.15) return 'center'
+    return 'custom'
+  },
+  set(v) {
+    if (v === 'top') subtitleStyleForm.value.position = 0.6
+    else if (v === 'center') subtitleStyleForm.value.position = 0
+    else if (v === 'bottom') subtitleStyleForm.value.position = -0.66
+  },
+})
+function openSubtitleStyle() {
+  subtitleStyleForm.value = { ...DEFAULT_SUBTITLE_STYLE, ...subtitleStyle.value }
+  subtitleStyleVisible.value = true
+}
+function applySubtitleStyle() {
+  const form = subtitleStyleForm.value
+  subtitleStyle.value = {
+    font: String(form.font || ''),
+    size: Number(form.size) > 0 ? Number(form.size) : 8.5,
+    position: Number.isFinite(Number(form.position)) ? Number(form.position) : -0.66,
+  }
+  subtitleStyleVisible.value = false
+  dirty.value = true
+  ElMessage.success('字幕样式已应用，保存后导出和预览都会同步')
+}
+// 样式弹窗里的 9:16 预览：优先用第一个镜头里的第一句字幕当样本
+const SUB_PREVIEW_W = 180
+const subtitleSample = computed(() => {
+  const node = nodes.value.find((n) => n.type === 'video' && String(n.data?.subtitle || '').trim())
+  const first = node
+    ? String(node.data.subtitle).split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0]
+    : ''
+  if (!first) return '这是一句示例字幕'
+  // 真实字幕一般两行以内，样本太长会把预览框塞满，截断后更能看清字号
+  return first.length > 16 ? `${first.slice(0, 16)}…` : first
+})
+const subtitlePreviewCss = computed(() => {
+  const f = subtitleStyleForm.value
+  const size = Number(f.size) > 0 ? Number(f.size) : 8.5
+  const pos = Number.isFinite(Number(f.position)) ? Math.max(-1, Math.min(1, Number(f.position))) : -0.66
+  return {
+    // 剪映里字号 8.5 ≈ 1080 宽画面下 60px，按预览框宽度等比换算
+    fontSize: `${Math.max(6, (size * 7.06 * SUB_PREVIEW_W) / 1080).toFixed(1)}px`,
+    // transform_y 以画面中心为 0，换成距底部的百分比
+    bottom: `${((0.5 + pos * 0.5) * 100).toFixed(1)}%`,
+    fontFamily: f.font ? `"${f.font}", "PingFang SC", "Microsoft YaHei", sans-serif` : '',
+  }
+})
 const filters = ['清透自然', '暖食', '情感电影', '日系奶油', '清晰明亮', '高清黑白']
 const transitions = ['无', '叠化', '闪白', '推近', '快涂擦除', '模糊', '闪黑']
 const inspectorVisible = ref(false)
@@ -1453,6 +1558,7 @@ async function loadProject() {
       sourceHandle: e.sourceHandle ?? 'sr',
       targetHandle: e.targetHandle ?? 'tl',
     }))
+    subtitleStyle.value = { ...DEFAULT_SUBTITLE_STYLE, ...(canvas.subtitleStyle || {}) }
     dirty.value = false
     localStorage.setItem('lastProject', String(projectId.value))
   } finally {
@@ -1513,7 +1619,7 @@ async function save(auto = false) {
       return out
     })
     await api.put(`/projects/${projectId.value}`, {
-      canvas: { nodes: clean(nodes.value), edges: cleanEdges },
+      canvas: { nodes: clean(nodes.value), edges: cleanEdges, subtitleStyle: { ...subtitleStyle.value } },
     })
     dirty.value = false
     if (!auto) ElMessage.success('已保存')
@@ -2002,4 +2108,39 @@ onUnmounted(() => {
 .pick-music-icon { font-size: 16px; }
 .pick-music-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-music-ext { font-size: 11px; color: var(--el-text-color-secondary); }
+/* 字幕样式弹窗：左边 9:16 画面预览，右边参数 */
+.sub-style-body { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.sub-preview { flex: 0 0 180px; margin: 0 auto; text-align: center; }
+.sub-frame {
+  position: relative;
+  width: 180px;
+  height: 320px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(165deg, #2b3a4d 0%, #45566b 45%, #1f2937 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+/* 假画面：几条竖向渐变模拟素材，让字幕位置更好判断 */
+.sub-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 24%, transparent 24% 32%, rgba(255, 255, 255, 0.04) 32% 68%, transparent 68%),
+    radial-gradient(circle at 70% 30%, rgba(255, 255, 255, 0.12), transparent 55%);
+}
+.sub-sample {
+  position: absolute;
+  left: 6%;
+  width: 88%;
+  text-align: center;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1.35;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.9), 0 0 2px #000;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.sub-preview-tip { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 8px; }
+.sub-form { flex: 1 1 300px; min-width: 0; }
 </style>

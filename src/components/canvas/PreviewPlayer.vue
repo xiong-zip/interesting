@@ -13,7 +13,7 @@
         <div v-if="loading" class="overlay">正在加载素材…</div>
         <div v-else-if="!clips.length" class="overlay">{{ errorTip || '画布上还没有可预览的素材' }}</div>
         <button v-else-if="!playing" class="play-btn" @click="togglePlay">▶</button>
-        <div v-if="currentSubtitle" class="subtitle">{{ currentSubtitle }}</div>
+        <div v-if="currentSubtitle" class="subtitle" :style="subtitleCss">{{ currentSubtitle }}</div>
         <div v-if="currentLyric" class="lyric-overlay">{{ currentLyric }}</div>
         <div v-if="errorTip && clips.length" class="err">{{ errorTip }}</div>
       </div>
@@ -103,6 +103,20 @@ const transitionClass = ref('')
 const planSize = ref({ width: 1080, height: 1920 })
 const orientation = ref('portrait')
 const mismatched = ref(0)
+// 全片字幕样式（字体 / 字号 / 位置），由画布的「字幕样式」设置决定
+const subtitleStyle = ref({ font: '', size: 8.5, position: -0.66 })
+const subtitleCss = computed(() => {
+  const s = subtitleStyle.value || {}
+  const size = Number(s.size) > 0 ? Number(s.size) : 8.5
+  const pos = Number.isFinite(Number(s.position)) ? Math.max(-1, Math.min(1, Number(s.position))) : -0.66
+  return {
+    fontFamily: s.font ? `"${s.font}", "PingFang SC", "Microsoft YaHei", sans-serif` : '',
+    // 预览按默认字号 8.5 ≈ 20px 等比换算，只求相对大小一致
+    fontSize: `${Math.round((20 * size) / 8.5 * 10) / 10}px`,
+    // transform_y 以画面中心为 0，换算成距底部的百分比
+    bottom: `${((0.5 + pos * 0.5) * 100).toFixed(1)}%`,
+  }
+})
 
 let bgmAudio = null
 let clipBgmAudio = null
@@ -189,6 +203,7 @@ onMounted(async () => {
     if (data.width && data.height) planSize.value = { width: data.width, height: data.height }
     orientation.value = data.orientation || 'portrait'
     mismatched.value = data.mismatched || 0
+    subtitleStyle.value = data.subtitleStyle || subtitleStyle.value
     lyrics.value = (data.lyrics || []).filter((l) => (l.text || '').trim())
     const durations = await Promise.all(data.clips.map((c) => probe(c.src)))
     let cursor = 0

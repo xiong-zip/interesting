@@ -105,6 +105,7 @@ router.get('/:id/preview-plan', (req, res) => {
     height: plan.height,
     orientation: plan.orientation,
     mismatched: plan.mismatched,
+    subtitleStyle: plan.subtitleStyle,
     bgm: bgmId ? { src: `/api/music/stream/${bgmId}`, volume: plan.bgmVolume ?? 0.25 } : null,
     bgmLyric: plan.bgmLyric || '',
     lyrics: plan.lyrics || [],

@@ -85,6 +85,23 @@ function buildPlan(project) {
   const nodes = canvas.nodes || []
   const ordered = orderNodes(nodes, canvas.edges)
 
+  // 全片字幕样式：字幕文字写在镜头里，字体 / 字号 / 位置由画布统一指定
+  const rawStyle = canvas.subtitleStyle || {}
+  const rawSize = Number(rawStyle.size)
+  const rawPos = Number(rawStyle.position)
+  const subtitleStyle = {
+    font: String(rawStyle.font || ''),
+    size: Number.isFinite(rawSize) && rawSize > 0 ? rawSize : 8.5,
+    // 0 表示居中，不能用 || 兜底，否则居中会被当成「没设置」
+    position: Number.isFinite(rawPos) ? Math.max(-1, Math.min(1, rawPos)) : -0.66,
+  }
+  const applySubtitleStyle = (s) => ({
+    text: s.text,
+    font: s.font || subtitleStyle.font,
+    size: subtitleStyle.size,
+    position: subtitleStyle.position,
+  })
+
   const clips = []
   const skipped = []
   let subtitles = []
@@ -109,7 +126,7 @@ function buildPlan(project) {
       path: row.filepath,
       filename: row.filename,
       orientation: row.orientation || '',
-      subtitles: [...subtitles, ...ownSubs].map((s) => ({ text: s.text, font: s.font || '' })),
+      subtitles: [...subtitles, ...ownSubs].map(applySubtitleStyle),
       bgmPath: hasMusic ? music.path : '',
       bgmVolume: hasMusic ? (data?.musicVolume != null ? Number(data.musicVolume) : 0.3) : null,
       inPoint: Number(data?.inPoint) || 0,
@@ -206,6 +223,7 @@ function buildPlan(project) {
     bgmPath: bgm?.path || '',
     bgmVolume: bgm?.volume ?? 0.25,
     bgmLyric: bgm?.lyricPath ? path.basename(bgm.lyricPath) : '',
+    subtitleStyle,
     lyrics,
     clips,
     skipped,
