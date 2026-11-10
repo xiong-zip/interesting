@@ -67,7 +67,7 @@ router.post('/scan', (req, res) => {
   walk(root)
 
   const insert = db.prepare(
-    'INSERT INTO media_files (filename, filepath, size, ext) VALUES (?, ?, ?, ?) ON CONFLICT(filepath) DO UPDATE SET filename=excluded.filename, size=excluded.size, scanned_at=datetime(\'now\',\'localtime\')',
+    "INSERT INTO media_files (filename, filepath, size, ext) VALUES (?, ?, ?, ?) ON CONFLICT(filepath) DO UPDATE SET filename=excluded.filename, size=excluded.size, scanned_at=datetime('now','localtime')",
   )
   const tx = db.transaction(() => found.forEach((f) => insert.run(f.filename, f.filepath, f.size, f.ext)))
   tx()
@@ -102,9 +102,9 @@ function mediaUsage() {
   const usage = new Map()
   const projects = db.prepare('SELECT id, canvas, updated_at FROM projects').all()
   for (const p of projects) {
-    let canvas = {}
+    let canvas
     try {
-      canvas = JSON.parse(p.canvas || '{}')
+      canvas = JSON.parse(p.canvas || '{}') || {}
     } catch {
       continue
     }
@@ -128,9 +128,7 @@ router.get('/list', (req, res) => {
   const removed = req.query.removed === '1'
   // 回收站不按库过滤：误删时多半记不清当初放在哪个库，全部列出来更好找
   const rows = removed
-    ? db
-        .prepare('SELECT * FROM media_files WHERE removed_at IS NOT NULL ORDER BY removed_at DESC')
-        .all()
+    ? db.prepare('SELECT * FROM media_files WHERE removed_at IS NOT NULL ORDER BY removed_at DESC').all()
     : db
         .prepare(
           `SELECT * FROM media_files

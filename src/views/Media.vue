@@ -24,28 +24,34 @@
         >
           <el-option v-for="t in allTags" :key="t" :label="t" :value="t" />
         </el-select>
-        <el-switch
-          v-model="showRemoved"
-          size="small"
-          active-text="回收站"
-          style="margin-left: 12px"
-          @change="load"
-        />
+        <el-switch v-model="showRemoved" size="small" active-text="回收站" style="margin-left: 12px" @change="load" />
         <span class="muted" style="margin-left: 12px">{{ library === 'media' ? mediaDir : assetDir }}</span>
-        <el-button v-if="library === 'media' && !showRemoved" style="margin-left: 12px" :loading="scanning" @click="scan">扫描媒体目录</el-button>
+        <el-button
+          v-if="library === 'media' && !showRemoved"
+          style="margin-left: 12px"
+          :loading="scanning"
+          @click="scan"
+          >扫描媒体目录</el-button
+        >
       </div>
     </div>
 
     <el-empty
       v-if="!items.length"
-      :description="showRemoved
-        ? '回收站是空的。移除的素材会留在这里，随时可以恢复'
-        : (library === 'media' ? '还没有视频素材。把视频文件放入媒体目录后点击「扫描媒体目录」' : '素材库还是空的，可以在媒体库里点「移入素材库」')"
+      :description="
+        showRemoved
+          ? '回收站是空的。移除的素材会留在这里，随时可以恢复'
+          : library === 'media'
+            ? '还没有视频素材。把视频文件放入媒体目录后点击「扫描媒体目录」'
+            : '素材库还是空的，可以在媒体库里点「移入素材库」'
+      "
     />
 
     <template v-else>
       <div v-for="g in groups" :key="g.date">
-        <div class="group-title">{{ g.date }} <span class="muted">{{ g.items.length }} 个</span></div>
+        <div class="group-title">
+          {{ g.date }} <span class="muted">{{ g.items.length }} 个</span>
+        </div>
         <div class="card-grid">
           <el-card v-for="m in g.items" :key="m.id" shadow="hover" :body-style="{ padding: '0' }">
             <div class="video-box" @click="preview(m)">
@@ -57,7 +63,8 @@
             <div style="padding: 10px 14px">
               <div class="fname" :title="m.filename">{{ m.filename }}</div>
               <div class="muted">
-                {{ (m.size / 1024 / 1024).toFixed(1) }} MB · {{ m.ext.toUpperCase() }}<template v-if="m.width"> · {{ m.width }}×{{ m.height }}</template> · {{ m.scanned_at }}
+                {{ (m.size / 1024 / 1024).toFixed(1) }} MB · {{ m.ext.toUpperCase()
+                }}<template v-if="m.width"> · {{ m.width }}×{{ m.height }}</template> · {{ m.scanned_at }}
               </div>
               <div class="meta-line">
                 <span v-if="showRemoved" class="badge">{{ m.library === 'asset' ? '素材库' : '媒体库' }}</span>
@@ -75,7 +82,9 @@
                 </template>
                 <template v-else>
                   <el-button size="small" @click="edit(m)">备注/标签</el-button>
-                  <el-button size="small" @click="move(m)">{{ library === 'media' ? '移入素材库' : '移回媒体库' }}</el-button>
+                  <el-button size="small" @click="move(m)">{{
+                    library === 'media' ? '移入素材库' : '移回媒体库'
+                  }}</el-button>
                   <el-button size="small" type="danger" plain @click="remove(m)">移除</el-button>
                 </template>
               </div>
@@ -91,10 +100,19 @@
         <p>浏览器无法播放该视频编码（通常是 HEVC/H.265），剪映可以正常使用。</p>
         <el-button type="primary" @click="openExternal">用系统播放器打开</el-button>
       </div>
-      <video v-else :src="mediaUrl(previewing.id)" controls autoplay style="width: 100%; max-height: 70vh" @error="previewFailed = true" />
+      <video
+        v-else
+        :src="mediaUrl(previewing.id)"
+        controls
+        autoplay
+        style="width: 100%; max-height: 70vh"
+        @error="previewFailed = true"
+      />
       <div v-if="!previewFailed" style="margin-top: 12px; display: flex; gap: 12px; align-items: center">
         <el-button size="small" @click="openExternal">用系统播放器打开</el-button>
-        <span style="color: var(--el-text-color-secondary); font-size: 12px">浏览器无法解码 HEVC/H.265 时，请用系统播放器观看</span>
+        <span style="color: var(--el-text-color-secondary); font-size: 12px"
+          >浏览器无法解码 HEVC/H.265 时，请用系统播放器观看</span
+        >
       </div>
     </el-dialog>
 
@@ -203,7 +221,9 @@ async function autoProbe() {
 async function move(m) {
   const target = library.value === 'media' ? 'asset' : 'media'
   const label = target === 'asset' ? '素材库' : '媒体库'
-  await ElMessageBox.confirm(`把「${m.filename}」移动到${label}目录？文件会从原目录移走。`, '移动素材', { type: 'warning' })
+  await ElMessageBox.confirm(`把「${m.filename}」移动到${label}目录？文件会从原目录移走。`, '移动素材', {
+    type: 'warning',
+  })
   const { data } = await api.post(`/media/${m.id}/move`, { target })
   ElMessage.success(`已移动到${label}：${data.filepath}`)
   await load()
@@ -240,7 +260,9 @@ async function saveEdit() {
 
 // 移除 = 移入回收站：只标记 removed_at，磁盘文件不动，重新扫描也不会复活
 async function remove(m) {
-  await ElMessageBox.confirm(`把「${m.filename}」移入回收站？磁盘文件不会删除，之后可以恢复。`, '移除素材', { type: 'warning' })
+  await ElMessageBox.confirm(`把「${m.filename}」移入回收站？磁盘文件不会删除，之后可以恢复。`, '移除素材', {
+    type: 'warning',
+  })
   await api.delete(`/media/${m.id}`)
   ElMessage.success('已移入回收站')
   load()
@@ -263,27 +285,95 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.muted { color: var(--el-text-color-placeholder); font-size: 12px; }
-.meta-line { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.badge { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--el-fill-color); color: var(--el-text-color-secondary); }
-.badge.ok { background: var(--el-color-success-light-9); color: var(--el-color-success); }
-.badge.warn { background: var(--el-color-warning-light-9); color: var(--el-color-warning); }
-.badge.danger { background: var(--el-color-danger-light-9); color: var(--el-color-danger); }
-.tag-line { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-.tag-item { font-size: 11px; }
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+.meta-line {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.badge {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--el-fill-color);
+  color: var(--el-text-color-secondary);
+}
+.badge.ok {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+.badge.warn {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+}
+.badge.danger {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.tag-line {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.tag-item {
+  font-size: 11px;
+}
 .missing-mask {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  color: #fff; background: rgba(0, 0, 0, 0.55); font-size: 12px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
 }
-.video-box { position: relative; cursor: pointer; background: #000; height: 150px; }
-.thumb { width: 100%; height: 100%; object-fit: cover; }
+.video-box {
+  position: relative;
+  cursor: pointer;
+  background: #000;
+  height: 150px;
+}
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .play-overlay {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  color: #fff; background: rgba(0, 0, 0, 0.25); opacity: 0; transition: opacity 0.2s;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.2s;
 }
-.play-fallback { text-align: center; padding: 40px 0; color: var(--el-text-color-secondary); }
+.play-fallback {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--el-text-color-secondary);
+}
 .ratio-badge {
   position: absolute;
   left: 8px;
@@ -296,9 +386,24 @@ onMounted(async () => {
   background: rgba(64, 158, 255, 0.85);
   backdrop-filter: blur(2px);
 }
-.ratio-badge.landscape { background: rgba(230, 162, 60, 0.9); }
-.ratio-badge.square { background: rgba(103, 194, 58, 0.9); }
-.group-title { margin: 18px 0 10px; font-weight: 600; font-size: 14px; }
-.video-box:hover .play-overlay { opacity: 1; }
-.fname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ratio-badge.landscape {
+  background: rgba(230, 162, 60, 0.9);
+}
+.ratio-badge.square {
+  background: rgba(103, 194, 58, 0.9);
+}
+.group-title {
+  margin: 18px 0 10px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.video-box:hover .play-overlay {
+  opacity: 1;
+}
+.fname {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

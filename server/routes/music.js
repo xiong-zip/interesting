@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { spawnSync } = require('child_process')
 const db = require('../db')
+const { pythonBin, ffmpegPath } = require('../runtime')
 
 const router = express.Router()
 
@@ -74,7 +75,12 @@ router.post('/scan', (req, res) => {
     })
   }
 
-  const existing = new Set(db.prepare('SELECT path FROM music_files').all().map((r) => r.path))
+  const existing = new Set(
+    db
+      .prepare('SELECT path FROM music_files')
+      .all()
+      .map((r) => r.path),
+  )
   let added = 0
   let withCover = 0
   let withLyric = 0
@@ -172,7 +178,9 @@ router.post('/tags/:id', (req, res) => {
 router.post('/bgm/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM music_files WHERE id = ?').get(req.params.id)
   if (!row) return res.status(404).json({ error: '音乐不存在' })
-  db.prepare("INSERT INTO settings (key, value) VALUES ('bgm_path', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(row.path)
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('bgm_path', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(row.path)
   res.json({ ok: true })
 })
 
@@ -181,7 +189,11 @@ router.get('/current', (req, res) => {
   if (!configured?.value) return res.json({ path: null })
   const row = db.prepare('SELECT * FROM music_files WHERE path = ?').get(configured.value)
   if (row) return res.json(row)
-  res.json({ path: configured.value, filename: path.basename(configured.value), ext: path.extname(configured.value).slice(1).toLowerCase() })
+  res.json({
+    path: configured.value,
+    filename: path.basename(configured.value),
+    ext: path.extname(configured.value).slice(1).toLowerCase(),
+  })
 })
 
 router.delete('/bgm', (req, res) => {
@@ -197,14 +209,16 @@ router.get('/use-lyric', (req, res) => {
 
 router.post('/use-lyric', (req, res) => {
   const enabled = req.body?.enabled !== false
-  db.prepare("INSERT INTO settings (key, value) VALUES ('use_bgm_lyric', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(enabled ? '1' : '0')
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('use_bgm_lyric', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(enabled ? '1' : '0')
   res.json({ ok: true })
 })
 
 // 批量解码 .ncm：整个列表交给一个 python 进程，单个文件失败不影响其它文件
 function decodeNcmFiles(files) {
   if (!files.length) return { decoded: [], failed: [] }
-  const r = spawnSync(process.env.PYTHON || 'python', [path.join(__dirname, '..', 'ncm.py')], {
+  const r = spawnSync(pythonBin(), [path.join(__dirname, '..', 'ncm.py')], {
     input: JSON.stringify(files),
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
@@ -236,19 +250,14 @@ function decodeNcmFiles(files) {
 }
 
 // ffmpeg 路径：优先环境变量，其次 imageio-ffmpeg 自带的二进制
-function ffmpegPath() {
-  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH
-  const r = spawnSync('python', ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], { encoding: 'utf8' })
-  if (r.status === 0 && r.stdout.trim()) return r.stdout.trim()
-  return 'ffmpeg'
-}
-
 // 普通音频格式转 mp3（不做任何解密）
 function convertToMp3(row) {
   if (row.ext === 'mp3') return { ok: true, skipped: true, path: row.path }
   const target = path.join(path.dirname(row.path), path.basename(row.path, path.extname(row.path)) + '.mp3')
-  const r = spawnSync(ffmpegPath(), ['-y', '-i', row.path, '-codec:a', 'libmp3lame', '-q:a', '2', target], { encoding: 'utf8' })
-  if (r.status !== 0) throw new Error(((r.stderr || '').trim().split(/\r?\n/).slice(-2).join(' ')) || 'ffmpeg 转换失败')
+  const r = spawnSync(ffmpegPath(), ['-y', '-i', row.path, '-codec:a', 'libmp3lame', '-q:a', '2', target], {
+    encoding: 'utf8',
+  })
+  if (r.status !== 0) throw new Error((r.stderr || '').trim().split(/\r?\n/).slice(-2).join(' ') || 'ffmpeg 转换失败')
   const stat = fs.statSync(target)
   const { cover, lyric } = findSiblings(target)
   db.prepare(

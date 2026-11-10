@@ -16,16 +16,23 @@ function buildPrompt({ topic, hotTitle, scriptTitle, videos, notes, style, durat
   if (scriptTitle) parts.push(`\n【脚本标题】${scriptTitle}\n开头钩子和分镜都要服务于这个标题，不要写成另一个主题。`)
   if (topic) parts.push(`\n【主题/角度】${topic}`)
   if (videos?.length) {
-    parts.push('\n【可用视频素材】\n' + videos.map((v, i) => `${i + 1}. ${v.filename}${v.note ? `（${v.note}）` : ''}`).join('\n'))
+    parts.push(
+      '\n【可用视频素材】\n' +
+        videos.map((v, i) => `${i + 1}. ${v.filename}${v.note ? `（${v.note}）` : ''}`).join('\n'),
+    )
     parts.push('脚本中请在合适的分镜处标注使用哪条素材（如：[素材1]）。')
   }
   if (notes) parts.push(`\n【剧情笔记（来自画布）】\n${notes}`)
   if (draft) {
     parts.push(`\n【待润色草稿】\n${draft}`)
-    parts.push('\n请在保留原意和分镜结构的前提下润色：补强开头钩子、让口播更口语、节奏更紧，输出完整脚本，不要只给修改说明。')
+    parts.push(
+      '\n请在保留原意和分镜结构的前提下润色：补强开头钩子、让口播更口语、节奏更紧，输出完整脚本，不要只给修改说明。',
+    )
   }
   parts.push(`\n【要求】风格：${style || '口语化、有网感'}；时长：${duration || '60秒左右'}。`)
-  parts.push('\n输出格式：\n1. 标题（3 个备选）\n2. 开头钩子\n3. 分镜脚本（镜号/画面/口播/字幕/素材标注）\n4. 结尾互动引导')
+  parts.push(
+    '\n输出格式：\n1. 标题（3 个备选）\n2. 开头钩子\n3. 分镜脚本（镜号/画面/口播/字幕/素材标注）\n4. 结尾互动引导',
+  )
   return parts.join('\n')
 }
 
@@ -97,7 +104,11 @@ router.post('/test', async (req, res) => {
   const key = getSetting('glm_api_key') || process.env.GLM_API_KEY
   if (!key) return res.json({ ok: false, error: '未配置 GLM API Key' })
   try {
-    const content = await callGLM('回复"连接成功"两个字即可。', key, getSetting('glm_model') || process.env.GLM_MODEL || 'glm-4-flash')
+    const content = await callGLM(
+      '回复"连接成功"两个字即可。',
+      key,
+      getSetting('glm_model') || process.env.GLM_MODEL || 'glm-4-flash',
+    )
     res.json({ ok: true, content })
   } catch (e) {
     res.json({ ok: false, error: e.message })

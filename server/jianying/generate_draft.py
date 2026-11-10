@@ -19,8 +19,20 @@ import pyJianYingDraft as draft
 SEC = draft.SEC
 
 
-def enum_member(enum_cls, name, fallback):
-    return getattr(enum_cls, name, None) or getattr(enum_cls, fallback)
+def enum_member(enum_cls, name, fallback, warnings=None, label=""):
+    """按名称取枚举；名称不存在时回退到 fallback，并记录一条可展示的警告。"""
+    value = getattr(enum_cls, name, None) if name else None
+    if value is not None:
+        return value
+    value = getattr(enum_cls, fallback, None)
+    if value is None:
+        members = list(enum_cls)
+        if not members:
+            raise ValueError(f"{enum_cls} 没有可用成员")
+        value = members[0]
+    if warnings is not None and name:
+        warnings.append(f"{label or enum_cls.__name__}「{name}」当前 pyJianYingDraft 不支持，已回退为「{fallback}」")
+    return value
 
 
 def num_or(value, fallback):
@@ -50,6 +62,7 @@ def main():
     with open(sys.argv[1], encoding="utf-8") as f:
         plan = json.load(f)
 
+    warnings = []
     os.makedirs(plan["draftDir"], exist_ok=True)
     folder = draft.DraftFolder(plan["draftDir"])
     script = folder.create_draft(
@@ -97,9 +110,9 @@ def main():
         duration = int(segment.target_timerange.duration)
         # 调色：演示模式按片段轮换滤镜，否则用节点选择的滤镜
         if demo:
-            current_filter = enum_member(draft.FilterType, demo_filters[idx % len(demo_filters)], "清透自然")
+            current_filter = enum_member(draft.FilterType, demo_filters[idx % len(demo_filters)], "清透自然", warnings, "滤镜")
         else:
-            current_filter = enum_member(draft.FilterType, clip.get("filter") or plan.get("filter", "清透自然"), "清晰明亮")
+            current_filter = enum_member(draft.FilterType, clip.get("filter") or plan.get("filter", "清透自然"), "清晰明亮", warnings, "滤镜")
         segment.add_filter(current_filter, filter_intensity)
         built.append((segment, cursor, duration, clip))
         cursor += duration
@@ -119,7 +132,7 @@ def main():
                 tduration = f"{tduration}s"
         if tname in ("无", "none", None):
             continue
-        transition_type = enum_member(draft.TransitionType, tname, "叠化")
+        transition_type = enum_member(draft.TransitionType, tname, "叠化", warnings, "转场")
         segment.add_transition(transition_type, duration=tduration)
 
     for segment, start, duration, clip in built:
@@ -141,7 +154,7 @@ def main():
             text = draft.TextSegment(
                 wrap_subtitle(sub["text"]),
                 draft.Timerange(s_start, s_dur),
-                font=enum_member(draft.FontType, sub.get("font") or "抖音美好体", "抖音美好体"),
+                font=enum_member(draft.FontType, sub.get("font") or "抖音美好体", "抖音美好体", warnings, "字体"),
                 style=draft.TextStyle(size=sub_size, bold=True, align=1, letter_spacing=1, line_spacing=2),
                 border=draft.TextBorder(color=(0.0, 0.0, 0.0), width=45.0),
                 shadow=draft.TextShadow(alpha=0.55, color=(0.0, 0.0, 0.0), diffuse=8.0, distance=3.0, angle=-45.0),
@@ -159,7 +172,7 @@ def main():
         title_seg = draft.TextSegment(
             title,
             draft.Timerange(0, 2 * SEC),
-            font=enum_member(draft.FontType, "抖音美好体", "SourceHanSansCN_Bold"),
+            font=enum_member(draft.FontType, "抖音美好体", "SourceHanSansCN_Bold", warnings, "字体"),
             style=draft.TextStyle(size=18.0, bold=True, align=1, letter_spacing=2, line_spacing=2),
             border=draft.TextBorder(color=(0.0, 0.0, 0.0), width=55.0),
             shadow=draft.TextShadow(alpha=0.6, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=4.0, angle=-45.0),
@@ -175,7 +188,7 @@ def main():
         end_seg = draft.TextSegment(
             end_card,
             draft.Timerange(cursor - int(1.5 * SEC), int(1.5 * SEC)),
-            font=enum_member(draft.FontType, "抖音美好体", "SourceHanSansCN_Bold"),
+            font=enum_member(draft.FontType, "抖音美好体", "SourceHanSansCN_Bold", warnings, "字体"),
             style=draft.TextStyle(size=22.0, bold=True, align=1, letter_spacing=3),
             border=draft.TextBorder(color=(0.0, 0.0, 0.0), width=55.0),
             shadow=draft.TextShadow(alpha=0.6, color=(0.0, 0.0, 0.0), diffuse=10.0, distance=4.0, angle=-45.0),
@@ -260,7 +273,7 @@ def main():
         text = draft.TextSegment(
             wrap_subtitle(lyric["text"]),
             draft.Timerange(start_us, dur_us),
-            font=enum_member(draft.FontType, lyric.get("font") or "抖音美好体", "抖音美好体"),
+            font=enum_member(draft.FontType, lyric.get("font") or "抖音美好体", "抖音美好体", warnings, "字体"),
             style=draft.TextStyle(size=10.0, bold=True, align=1, letter_spacing=1, line_spacing=2),
             border=draft.TextBorder(color=(0.0, 0.0, 0.0), width=45.0),
             shadow=draft.TextShadow(alpha=0.6, color=(0.0, 0.0, 0.0), diffuse=9.0, distance=3.0, angle=-45.0),
@@ -281,6 +294,7 @@ def main():
         "clipBgm": len(clip_bgm_plan),
         "clipBgmTracks": len(runs),
         "lyrics": lyrics_count,
+        "warnings": warnings,
     }, ensure_ascii=False))
 
 

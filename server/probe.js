@@ -1,6 +1,7 @@
 // 读取视频分辨率/时长，并归类为竖屏、横屏、方屏
 const path = require('path')
 const { spawn, spawnSync } = require('child_process')
+const { pythonBin } = require('./runtime')
 
 function orientationOf(width, height) {
   if (!width || !height) return ''
@@ -10,13 +11,17 @@ function orientationOf(width, height) {
 }
 
 function parse(stdout) {
-  const line = String(stdout || '').trim().split(/\r?\n/).filter(Boolean).pop()
+  const line = String(stdout || '')
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .pop()
   const data = JSON.parse(line)
   return { ...data, orientation: orientationOf(data.width, data.height) }
 }
 
 function ensureProbe(filepath) {
-  const python = process.env.PYTHON || 'python'
+  const python = pythonBin()
   const r = spawnSync(python, [path.join(__dirname, 'probe.py'), filepath], { encoding: 'utf8', timeout: 60000 })
   if (r.error || r.status !== 0) return null
   try {
@@ -28,7 +33,9 @@ function ensureProbe(filepath) {
 
 function ensureProbeAsync(filepath) {
   return new Promise((resolve) => {
-    const child = spawn(process.env.PYTHON || 'python', [path.join(__dirname, 'probe.py'), filepath], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const child = spawn(pythonBin(), [path.join(__dirname, 'probe.py'), filepath], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
     let out = ''
     child.stdout.on('data', (d) => (out += d))
     child.on('error', () => resolve(null))

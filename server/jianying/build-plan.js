@@ -39,7 +39,10 @@ function orderNodes(nodes, edges) {
     .filter((n) => (indeg.get(n.id) || 0) === 0)
     .sort((a, b) => posKey(a) - posKey(b))
     .forEach(walk)
-  nodes.filter((n) => !seen.has(n.id)).sort((a, b) => posKey(a) - posKey(b)).forEach(walk)
+  nodes
+    .filter((n) => !seen.has(n.id))
+    .sort((a, b) => posKey(a) - posKey(b))
+    .forEach(walk)
   return ordered
 }
 
@@ -75,7 +78,10 @@ function orderSceneItems(items, edges) {
     .sort((a, b) => posKey(a.it) - posKey(b.it))
     .forEach((x) => walk(x.id))
   // 没连线的卡片、以及成环走不到的卡片，按位置补在最后
-  list.filter((x) => !seen.has(x.id)).sort((a, b) => posKey(a.it) - posKey(b.it)).forEach((x) => walk(x.id))
+  list
+    .filter((x) => !seen.has(x.id))
+    .sort((a, b) => posKey(a.it) - posKey(b.it))
+    .forEach((x) => walk(x.id))
   return ordered
 }
 
@@ -87,7 +93,7 @@ function findMediaRow(mediaId, filename) {
   }
   if (filename) {
     return db
-      .prepare("SELECT * FROM media_files WHERE filename = ? AND removed_at IS NULL ORDER BY id DESC LIMIT 1")
+      .prepare('SELECT * FROM media_files WHERE filename = ? AND removed_at IS NULL ORDER BY id DESC LIMIT 1')
       .get(String(filename))
   }
   return null
@@ -175,10 +181,7 @@ function buildPlan(project) {
       pushClip(node.data, (canvas.edges || []).find((e) => e.source === node.id)?.data, node.id)
     } else if (node.type === 'scene') {
       const outEdge = (canvas.edges || []).find((e) => e.source === node.id)
-      const items = orderSceneItems(
-        Array.isArray(node.data?.items) ? node.data.items : [],
-        node.data?.edges,
-      )
+      const items = orderSceneItems(Array.isArray(node.data?.items) ? node.data.items : [], node.data?.edges)
       const lastVideoIndex = items.map((it) => it.kind).lastIndexOf('video')
       items.forEach((it, index) => {
         if (it.kind === 'video') pushClip(it, index === lastVideoIndex ? outEdge?.data : null)
@@ -251,4 +254,4 @@ function buildPlan(project) {
   }
 }
 
-module.exports = { buildPlan, draftDir }
+module.exports = { buildPlan, draftDir, orderNodes, orderSceneItems }

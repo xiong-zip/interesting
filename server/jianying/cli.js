@@ -13,7 +13,9 @@ function exportDraft(projectId, options = {}) {
   const plan = buildPlan(project)
   // 允许调用方指定草稿名称（同名草稿会被覆盖）
   if (options.draftName && String(options.draftName).trim()) {
-    plan.draftName = String(options.draftName).trim().replace(/[\\/:*?"<>|]/g, '_')
+    plan.draftName = String(options.draftName)
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
   }
   plan.title = project.name
   plan.endCard = '完'
@@ -36,9 +38,19 @@ function exportDraft(projectId, options = {}) {
     const r = spawnSync(python, [path.join(__dirname, 'generate_draft.py'), planFile], { encoding: 'utf8' })
     if (r.error) throw new Error(`无法执行 ${python}: ${r.error.message}（请确认已安装 Python 和 pyJianYingDraft）`)
     if (r.status !== 0) throw new Error(`生成剪映草稿失败: ${(r.stderr || r.stdout || '').trim()}`)
-    const lines = String(r.stdout || '').trim().split(/\r?\n/).filter(Boolean)
+    const lines = String(r.stdout || '')
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
     const result = JSON.parse(lines[lines.length - 1])
-    return { ...result, width: plan.width, height: plan.height, orientation: plan.orientation, mismatched: plan.mismatched, skipped: plan.skipped }
+    return {
+      ...result,
+      width: plan.width,
+      height: plan.height,
+      orientation: plan.orientation,
+      mismatched: plan.mismatched,
+      skipped: plan.skipped,
+    }
   } finally {
     fs.unlinkSync(planFile)
   }
@@ -48,7 +60,7 @@ module.exports = { exportDraft }
 
 if (require.main === module) {
   const args = process.argv.slice(2)
-  const projectId = args.find(a => /^\d+$/.test(a))
+  const projectId = args.find((a) => /^\d+$/.test(a))
   const options = {
     subtitles: args.includes('--subtitles') ? true : undefined,
     demo: args.includes('--demo'),

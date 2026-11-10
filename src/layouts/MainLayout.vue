@@ -3,14 +3,33 @@
     <el-aside width="210px" class="aside">
       <div class="logo">🎬 Creator Studio</div>
       <el-menu router :default-active="$route.path" class="menu">
-        <el-menu-item index="/dashboard"><el-icon><Monitor /></el-icon>工作台</el-menu-item>
-        <el-menu-item index="/hot"><el-icon><TrendCharts /></el-icon>热点中心</el-menu-item>
-        <el-menu-item index="/topics"><el-icon><Collection /></el-icon>选题池</el-menu-item>
-        <el-menu-item index="/media"><el-icon><VideoCamera /></el-icon>媒体库</el-menu-item>
-        <el-menu-item index="/music"><el-icon><Headset /></el-icon>音乐库</el-menu-item>
-        <el-menu-item index="/canvas"><el-icon><Grid /></el-icon>剧情画布</el-menu-item>
-        <el-menu-item index="/scripts"><el-icon><Document /></el-icon>脚本管理</el-menu-item>
-        <el-menu-item index="/admin"><el-icon><Setting /></el-icon>后台管理</el-menu-item>
+        <el-menu-item index="/dashboard"
+          ><el-icon><Monitor /></el-icon>工作台</el-menu-item
+        >
+        <el-menu-item index="/hot"
+          ><el-icon><TrendCharts /></el-icon>热点中心</el-menu-item
+        >
+        <el-menu-item index="/topics"
+          ><el-icon><Collection /></el-icon>选题池</el-menu-item
+        >
+        <el-menu-item index="/media"
+          ><el-icon><VideoCamera /></el-icon>媒体库</el-menu-item
+        >
+        <el-menu-item index="/music"
+          ><el-icon><Headset /></el-icon>音乐库</el-menu-item
+        >
+        <el-menu-item index="/canvas"
+          ><el-icon><Grid /></el-icon>剧情画布</el-menu-item
+        >
+        <el-menu-item index="/scripts"
+          ><el-icon><Document /></el-icon>脚本管理</el-menu-item
+        >
+        <el-menu-item index="/publish"
+          ><el-icon><Promotion /></el-icon>发布台账</el-menu-item
+        >
+        <el-menu-item index="/admin"
+          ><el-icon><Setting /></el-icon>后台管理</el-menu-item
+        >
       </el-menu>
     </el-aside>
     <el-main class="main"><router-view /></el-main>
@@ -18,7 +37,17 @@
 </template>
 
 <script setup>
-import { Monitor, TrendCharts, VideoCamera, Headset, Grid, Document, Setting, Collection } from '@element-plus/icons-vue'
+import {
+  Monitor,
+  TrendCharts,
+  VideoCamera,
+  Headset,
+  Grid,
+  Document,
+  Promotion,
+  Setting,
+  Collection,
+} from '@element-plus/icons-vue'
 </script>
 
 <style scoped>

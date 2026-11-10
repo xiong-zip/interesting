@@ -2,9 +2,33 @@
   <div class="page">
     <h2>工作台</h2>
     <el-row :gutter="16">
-      <el-col :span="8"><el-card><el-statistic title="项目数" :value="stats.projects" /></el-card></el-col>
-      <el-col :span="8"><el-card><el-statistic title="脚本数" :value="stats.scripts" /></el-card></el-col>
-      <el-col :span="8"><el-card><el-statistic title="视频素材" :value="stats.media" /></el-card></el-col>
+      <el-col :span="8"
+        ><el-card><el-statistic title="项目数" :value="stats.projects" /></el-card
+      ></el-col>
+      <el-col :span="8"
+        ><el-card><el-statistic title="脚本数" :value="stats.scripts" /></el-card
+      ></el-col>
+      <el-col :span="8"
+        ><el-card><el-statistic title="视频素材" :value="stats.media" /></el-card
+      ></el-col>
+    </el-row>
+
+    <el-row :gutter="16" style="margin-top: 12px">
+      <el-col :span="6">
+        <el-card shadow="never"><el-statistic title="近 30 天发布" :value="publish.published" /></el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="never"><el-statistic title="累计播放" :value="publish.totalViews" /></el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="never"><el-statistic title="累计点赞" :value="publish.totalLikes" /></el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="never" class="clickable" @click="router.push('/publish')">
+          <el-statistic title="平均播放" :value="publish.avgViews" />
+          <div class="muted">去发布台账 ›</div>
+        </el-card>
+      </el-col>
     </el-row>
 
     <el-row :gutter="16" style="margin-top: 16px">
@@ -60,6 +84,7 @@ const stats = ref({ projects: 0, scripts: 0, media: 0 })
 const hotAll = ref([])
 const hotPlatform = ref('')
 const scriptsTop = ref([])
+const publish = ref({ published: 0, totalViews: 0, totalLikes: 0, avgViews: 0 })
 
 // 平台筛选：从热点数据里汇总平台
 const platforms = computed(() => {
@@ -107,27 +132,34 @@ async function openScript(s) {
 }
 
 onMounted(async () => {
-  try {
-    const [hot, projects, scripts, media] = await Promise.all([
-      api.get('/hot/list'),
-      api.get('/projects/list'),
-      api.get('/scripts/list'),
-      api.get('/media/list'),
-    ])
-    hotAll.value = hot.data.items || []
-    stats.value.projects = projects.data.items.length
-    stats.value.scripts = scripts.data.items.length
-    stats.value.media = media.data.items.length
-    scriptsTop.value = (scripts.data.items || []).slice(0, 6)
-  } catch {
-    /* 拦截器已提示 */
+  // 逐个接口独立处理：某个模块接口失败时，其它统计仍能正常显示
+  const [hot, projects, scripts, media, publishSummary] = await Promise.allSettled([
+    api.get('/hot/list'),
+    api.get('/projects/list'),
+    api.get('/scripts/list'),
+    api.get('/media/list'),
+    api.get('/publish/summary', { params: { days: 30 } }),
+  ])
+  if (hot.status === 'fulfilled') hotAll.value = hot.value.data.items || []
+  if (projects.status === 'fulfilled') stats.value.projects = projects.value.data.items.length
+  if (scripts.status === 'fulfilled') {
+    stats.value.scripts = scripts.value.data.items.length
+    scriptsTop.value = (scripts.value.data.items || []).slice(0, 6)
   }
+  if (media.status === 'fulfilled') stats.value.media = media.value.data.items.length
+  if (publishSummary.status === 'fulfilled') publish.value = publishSummary.value.data
 })
 </script>
 
 <style scoped>
-.card-head { display: flex; align-items: center; justify-content: space-between; }
-.hot-filter { margin-bottom: 8px; }
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.hot-filter {
+  margin-bottom: 8px;
+}
 .hot-line {
   display: flex;
   align-items: center;
@@ -135,17 +167,30 @@ onMounted(async () => {
   padding: 6px 8px;
   border-radius: 6px;
 }
-.clickable { cursor: pointer; }
-.clickable:hover { background: var(--el-fill-color-light); }
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  background: var(--el-fill-color-light);
+}
 .hot-title {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.script-main { flex: 1; min-width: 0; }
-.script-main .hot-title { flex: none; }
-.open-hint { color: var(--el-color-primary); font-size: 12px; white-space: nowrap; }
+.script-main {
+  flex: 1;
+  min-width: 0;
+}
+.script-main .hot-title {
+  flex: none;
+}
+.open-hint {
+  color: var(--el-color-primary);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .muted {
   color: var(--el-text-color-placeholder);
   font-size: 12px;

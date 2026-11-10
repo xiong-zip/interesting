@@ -1,7 +1,12 @@
 <template>
   <div class="preview">
     <div class="stage-wrap">
-      <div ref="stageEl" class="stage" :class="transitionClass" :style="{ aspectRatio: `${planSize.width} / ${planSize.height}` }">
+      <div
+        ref="stageEl"
+        class="stage"
+        :class="transitionClass"
+        :style="{ aspectRatio: `${planSize.width} / ${planSize.height}` }"
+      >
         <video
           ref="videoEl"
           class="video"
@@ -18,12 +23,9 @@
           <div v-if="missing.length" class="overlay-sub">素材可能在媒体库被移除，或磁盘文件已不在</div>
         </div>
         <button v-else-if="!playing" class="play-btn" @click="togglePlay">▶</button>
-        <div
-          v-if="currentSubtitle"
-          class="subtitle"
-          :style="subtitleCss"
-          @pointerdown="startDrag($event, 'subtitle')"
-        >{{ currentSubtitle }}</div>
+        <div v-if="currentSubtitle" class="subtitle" :style="subtitleCss" @pointerdown="startDrag($event, 'subtitle')">
+          {{ currentSubtitle }}
+        </div>
         <div v-if="currentLyric" class="lyric-overlay">{{ currentLyric }}</div>
         <div v-if="errorTip && clips.length" class="err">{{ errorTip }}</div>
       </div>
@@ -38,8 +40,9 @@
       <el-button size="small" :disabled="!currentSubtitle" @click="resetSubtitle">复位字幕</el-button>
       <span class="time">{{ fmt(position) }} / {{ fmt(totalDuration) }}</span>
       <span class="hint">
-        画面和字幕可以直接拖动调整位置
-        · 草稿比例：{{ sizeLabel }}<template v-if="mismatched">（{{ mismatched }} 个素材比例不同会被裁切）</template><template v-if="missing.length"> · {{ missing.length }} 个镜头素材缺失</template>
+        画面和字幕可以直接拖动调整位置 · 草稿比例：{{ sizeLabel
+        }}<template v-if="mismatched">（{{ mismatched }} 个素材比例不同会被裁切）</template
+        ><template v-if="missing.length"> · {{ missing.length }} 个镜头素材缺失</template>
         · 转场、滤镜、字幕为近似预览，最终效果以剪映草稿为准
       </span>
     </div>
@@ -58,14 +61,19 @@
         </div>
       </div>
       <div class="subs-track">
-        <div v-for="(s, i) in subtitleBlocks" :key="i" class="sub-block" :style="{ left: pct(s.start), width: pct(s.end - s.start) }">
+        <div
+          v-for="(s, i) in subtitleBlocks"
+          :key="i"
+          class="sub-block"
+          :style="{ left: pct(s.start), width: pct(s.end - s.start) }"
+        >
           {{ s.text }}
         </div>
       </div>
       <div v-if="lyricBlocks.length" class="lyrics-track">
         <div
           v-for="(l, i) in lyricBlocks"
-          :key="'l'+i"
+          :key="'l' + i"
           class="lyric-block"
           :style="{ left: pct(l.start), width: pct(Math.max(0.2, l.end - l.start)) }"
           :title="l.text"
@@ -134,7 +142,7 @@ const subtitleCss = computed(() => {
     // 字体用系统近似，保证不同字体在预览里有可见差别
     ...subtitleFontCss(s.font),
     // 预览按默认字号 8.5 ≈ 20px 等比换算，只求相对大小一致
-    fontSize: `${Math.round((20 * size) / 8.5 * 10) / 10}px`,
+    fontSize: `${Math.round(((20 * size) / 8.5) * 10) / 10}px`,
     // transform_y 以画面中心为 0，换算成距底部的百分比
     bottom: `${((0.5 + pos * 0.5) * 100).toFixed(1)}%`,
     // 横向位移，单位同样是半个画面宽
@@ -215,7 +223,8 @@ function endDrag() {
   if (!d?.moved) return
   if (d.type === 'video') {
     const c = clips.value[currentIndex.value]
-    if (c?.nodeId) emit('update-shot', { nodeId: c.nodeId, transformX: round3(c.transformX), transformY: round3(c.transformY) })
+    if (c?.nodeId)
+      emit('update-shot', { nodeId: c.nodeId, transformX: round3(c.transformX), transformY: round3(c.transformY) })
   } else {
     emit('update-subtitle-style', {
       positionX: round3(subtitleStyle.value.positionX),
@@ -400,7 +409,7 @@ function loadClip(i, offset = 0) {
   if (i > 0) applyTransition(clips.value[i - 1])
   v.src = c.src
   v.playbackRate = c.speed
-  v.volume = Math.min(1, Math.max(0, Number(c.volume) ?? 1))
+  v.volume = Math.min(1, Math.max(0, Number(c.volume ?? 1)))
   position.value = c.start + offset
   applyClipBgm(c, offset, playing.value)
   if (c.failed && playing.value) setTimeout(() => nextClip(), 1200)
@@ -414,7 +423,7 @@ function onMeta() {
     v.currentTime = pendingSeek
   } catch {}
   v.playbackRate = c.speed
-  v.volume = Math.min(1, Math.max(0, Number(c.volume) ?? 1))
+  v.volume = Math.min(1, Math.max(0, Number(c.volume ?? 1)))
   ready.value = true
   if (playing.value) v.play().catch(() => {})
 }
@@ -536,8 +545,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.preview { display: flex; flex-direction: column; gap: 10px; }
-.stage-wrap { display: flex; justify-content: center; }
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stage-wrap {
+  display: flex;
+  justify-content: center;
+}
 .stage {
   position: relative;
   height: 52vh;
@@ -546,7 +562,15 @@ onUnmounted(() => {
   border-radius: 10px;
   overflow: hidden;
 }
-.video { width: 100%; height: 100%; object-fit: contain; display: block; cursor: grab; user-select: none; touch-action: none; }
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
 .overlay {
   position: absolute;
   inset: 0;
@@ -561,7 +585,10 @@ onUnmounted(() => {
   padding: 0 24px;
   background: rgba(0, 0, 0, 0.35);
 }
-.overlay-sub { font-size: 12px; color: #bbb; }
+.overlay-sub {
+  font-size: 12px;
+  color: #bbb;
+}
 .play-btn {
   position: absolute;
   left: 50%;
@@ -578,7 +605,9 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background 0.15s;
 }
-.play-btn:hover { background: rgba(0, 0, 0, 0.72); }
+.play-btn:hover {
+  background: rgba(0, 0, 0, 0.72);
+}
 .subtitle {
   position: absolute;
   left: 6%;
@@ -589,7 +618,9 @@ onUnmounted(() => {
   font-weight: 700;
   font-size: 20px;
   line-height: 1.35;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9), 0 0 2px #000;
+  text-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.9),
+    0 0 2px #000;
   pointer-events: auto;
   cursor: grab;
   user-select: none;
@@ -606,9 +637,20 @@ onUnmounted(() => {
   color: #ffd7a8;
   background: rgba(120, 60, 0, 0.6);
 }
-.controls { display: flex; align-items: center; gap: 10px; }
-.time { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--el-text-color-regular); }
-.hint { font-size: 12px; color: var(--el-text-color-secondary); }
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.time {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+.hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
 .timeline {
   position: relative;
   padding-bottom: 14px;
@@ -636,11 +678,24 @@ onUnmounted(() => {
   overflow: hidden;
   white-space: nowrap;
 }
-.clip:nth-child(even) { background: linear-gradient(180deg, #7fc4a8, #56a583); }
-.clip.active { box-shadow: inset 0 0 0 2px #ffd666; }
-.clip.failed { background: repeating-linear-gradient(45deg, #b0b0b0, #b0b0b0 6px, #969696 6px, #969696 12px); }
-.clip span { overflow: hidden; text-overflow: ellipsis; }
-.subs-track { position: relative; height: 20px; margin-top: 4px; }
+.clip:nth-child(even) {
+  background: linear-gradient(180deg, #7fc4a8, #56a583);
+}
+.clip.active {
+  box-shadow: inset 0 0 0 2px #ffd666;
+}
+.clip.failed {
+  background: repeating-linear-gradient(45deg, #b0b0b0, #b0b0b0 6px, #969696 6px, #969696 12px);
+}
+.clip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subs-track {
+  position: relative;
+  height: 20px;
+  margin-top: 4px;
+}
 .sub-block {
   position: absolute;
   top: 0;
@@ -655,7 +710,11 @@ onUnmounted(() => {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.lyrics-track { position: relative; height: 20px; margin-top: 4px; }
+.lyrics-track {
+  position: relative;
+  height: 20px;
+  margin-top: 4px;
+}
 .lyric-block {
   position: absolute;
   top: 0;
@@ -690,10 +749,18 @@ onUnmounted(() => {
   background: #ff4d4f;
   pointer-events: none;
 }
-.stage.anim-fade .video { animation: pvFade 0.55s ease-out; }
-.stage.anim-zoom .video { animation: pvZoom 0.55s ease-out; }
-.stage.anim-blur .video { animation: pvBlur 0.55s ease-out; }
-.stage.anim-wipe .video { animation: pvWipe 0.6s ease-out; }
+.stage.anim-fade .video {
+  animation: pvFade 0.55s ease-out;
+}
+.stage.anim-zoom .video {
+  animation: pvZoom 0.55s ease-out;
+}
+.stage.anim-blur .video {
+  animation: pvBlur 0.55s ease-out;
+}
+.stage.anim-wipe .video {
+  animation: pvWipe 0.6s ease-out;
+}
 .stage.anim-white::after,
 .stage.anim-black::after {
   content: '';
@@ -702,11 +769,47 @@ onUnmounted(() => {
   pointer-events: none;
   animation: pvFlash 0.55s ease-out forwards;
 }
-.stage.anim-white::after { background: #fff; }
-.stage.anim-black::after { background: #000; }
-@keyframes pvFade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes pvZoom { from { transform: scale(1.15); } to { transform: scale(1); } }
-@keyframes pvBlur { from { filter: blur(12px); } }
-@keyframes pvWipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
-@keyframes pvFlash { from { opacity: 1; } to { opacity: 0; } }
+.stage.anim-white::after {
+  background: #fff;
+}
+.stage.anim-black::after {
+  background: #000;
+}
+@keyframes pvFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pvZoom {
+  from {
+    transform: scale(1.15);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes pvBlur {
+  from {
+    filter: blur(12px);
+  }
+}
+@keyframes pvWipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+@keyframes pvFlash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
 </style>

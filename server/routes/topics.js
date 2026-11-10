@@ -8,14 +8,16 @@ const STATUSES = ['pending', 'writing', 'done', 'published', 'dropped']
 // 选题池：只放决定要做的热点，按状态排队，过期的待评估会标出来
 router.get('/list', (req, res) => {
   const rows = db
-    .prepare(`
+    .prepare(
+      `
       SELECT t.*, (SELECT COUNT(*) FROM scripts s WHERE s.topic_id = t.id) AS script_count
       FROM topics t
       ORDER BY
         CASE t.status WHEN 'pending' THEN 0 WHEN 'writing' THEN 1 WHEN 'done' THEN 2 WHEN 'published' THEN 3 ELSE 4 END,
         COALESCE(t.hot_peak, 0) DESC,
         t.id DESC
-    `)
+    `,
+    )
     .all()
 
   const now = Date.now()
@@ -43,10 +45,12 @@ router.post('/', (req, res) => {
   const exist = db.prepare('SELECT * FROM topics WHERE title = ?').get(text)
   if (exist) return res.json({ id: exist.id, existed: true })
   const info = db
-    .prepare(`
+    .prepare(
+      `
       INSERT INTO topics (title, url, platform, platforms, hot_first, hot_peak, first_seen_at)
       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now','localtime')))
-    `)
+    `,
+    )
     .run(
       text,
       String(url || ''),
@@ -64,11 +68,13 @@ router.put('/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: '选题不存在' })
   const { status, note, script_id, project_id } = req.body || {}
   const nextStatus = STATUSES.includes(status) ? status : row.status
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE topics SET status = ?, note = ?, script_id = COALESCE(?, script_id),
       project_id = COALESCE(?, project_id), updated_at = datetime('now','localtime')
     WHERE id = ?
-  `).run(nextStatus, note ?? row.note, script_id ?? null, project_id ?? null, req.params.id)
+  `,
+  ).run(nextStatus, note ?? row.note, script_id ?? null, project_id ?? null, req.params.id)
   res.json({ ok: true })
 })
 

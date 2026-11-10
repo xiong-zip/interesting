@@ -14,6 +14,7 @@ const routes = [
       { path: 'canvas', component: () => import('../views/Canvas.vue') },
       { path: 'canvas/:projectId', component: () => import('../views/Canvas.vue') },
       { path: 'scripts', component: () => import('../views/Scripts.vue') },
+      { path: 'publish', component: () => import('../views/Publish.vue') },
       { path: 'admin', component: () => import('../views/Admin.vue') },
     ],
   },

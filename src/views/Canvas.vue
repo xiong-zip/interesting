@@ -4,7 +4,13 @@
       <el-select :model-value="projectId" placeholder="选择项目" style="width: 220px" @change="switchProject">
         <el-option v-for="p in projectOptions" :key="p.id" :label="projectLabel(p)" :value="p.id" />
       </el-select>
-      <el-link v-if="orphanCount" type="info" :underline="false" class="orphan-toggle" @click="showOrphanProjects = !showOrphanProjects">
+      <el-link
+        v-if="orphanCount"
+        type="info"
+        :underline="false"
+        class="orphan-toggle"
+        @click="showOrphanProjects = !showOrphanProjects"
+      >
         {{ showOrphanProjects ? '隐藏' : '显示' }}{{ orphanCount }} 个脚本已删除的画布
       </el-link>
       <el-button @click="newProject">新建项目</el-button>
@@ -19,9 +25,12 @@
         <el-button size="small" @click="addNode('hot')">＋热点</el-button>
       </el-button-group>
       <el-button v-if="projectId" size="small" @click="organize">⚡ 一键整理</el-button>
-      <el-button v-if="projectId" size="small" @click="toggleTextSummary">{{ showTextSummary ? '📝 摘要开' : '📝 摘要关' }}</el-button>
+      <el-button v-if="projectId" size="small" @click="toggleTextSummary">{{
+        showTextSummary ? '📝 摘要开' : '📝 摘要关'
+      }}</el-button>
       <el-button v-if="projectId" size="small" @click="kbVisible = true">⌨️ 快捷键</el-button>
       <el-button v-if="projectId" size="small" @click="openSubtitleStyle">🎨 字幕样式</el-button>
+      <el-button v-if="projectId" size="small" @click="openVersions">🕘 历史</el-button>
       <el-button v-if="projectId" type="primary" size="small" :loading="saving" @click="save">
         保存{{ dirty ? ' *' : '' }}
       </el-button>
@@ -47,64 +56,69 @@
     </el-alert>
 
     <div class="canvas-body">
-    <div class="flow-wrap" v-loading="loading" @dragover.prevent @drop="onCanvasDrop">
-      <!-- 素材面板：拖到画布创建素材节点，拖进集成节点则加入该节点 -->
-      <div v-if="paletteVisible" class="palette">
-        <div class="palette-head">
-          <span>素材面板</span>
-          <el-button text size="small" @click="paletteVisible = false">收起</el-button>
-        </div>
-        <div class="palette-body">
-          <div class="palette-sec">视频</div>
-          <div class="palette-grid">
-            <div
-              v-for="m in paletteItems"
-              :key="m.id"
-              class="palette-item"
-              draggable="true"
-              @dragstart="onPaletteDragStart($event, { kind: 'video', mediaId: m.id, filename: m.filename, note: m.note || '' })"
-            >
-              <img :src="thumbUrl(m.id)" loading="lazy" />
-              <span>{{ m.filename }}</span>
-            </div>
-            <div v-if="!paletteItems.length" class="palette-empty">媒体库没有素材</div>
+      <div class="flow-wrap" v-loading="loading" @dragover.prevent @drop="onCanvasDrop">
+        <!-- 素材面板：拖到画布创建素材节点，拖进集成节点则加入该节点 -->
+        <div v-if="paletteVisible" class="palette">
+          <div class="palette-head">
+            <span>素材面板</span>
+            <el-button text size="small" @click="paletteVisible = false">收起</el-button>
           </div>
-          <div class="palette-tip">字幕 / 配乐写在镜头节点里：双击镜头节点填写；剧情用独立的剧情节点</div>
+          <div class="palette-body">
+            <div class="palette-sec">视频</div>
+            <div class="palette-grid">
+              <div
+                v-for="m in paletteItems"
+                :key="m.id"
+                class="palette-item"
+                draggable="true"
+                @dragstart="
+                  onPaletteDragStart($event, { kind: 'video', mediaId: m.id, filename: m.filename, note: m.note || '' })
+                "
+              >
+                <img :src="thumbUrl(m.id)" loading="lazy" />
+                <span>{{ m.filename }}</span>
+              </div>
+              <div v-if="!paletteItems.length" class="palette-empty">媒体库没有素材</div>
+            </div>
+            <div class="palette-tip">字幕 / 配乐写在镜头节点里：双击镜头节点填写；剧情用独立的剧情节点</div>
+          </div>
         </div>
+        <VueFlow
+          id="main-flow"
+          v-model:nodes="nodes"
+          v-model:edges="edges"
+          :default-viewport="{ zoom: 1 }"
+          :connection-radius="100"
+          :disable-keyboard-a11y="true"
+          :zoom-on-double-click="false"
+          :edges-updatable="true"
+          fit-view-on-init
+          @nodesChange="onNodesChange"
+          @edgesChange="onEdgesChange"
+          @connect="onConnect"
+          @edge-update="onEdgeUpdate"
+          @node-click="onNodeClick"
+          @node-double-click="onNodeDoubleClickEvent"
+          @node-drag-stop="onNodeDragStop"
+          @edge-click="onEdgeClick"
+          @pane-click="clearSelection"
+        >
+          <Background pattern-color="#3a3a4a" :gap="20" />
+          <Controls />
+          <MiniMap />
+          <template #node-plot="props"><PlotNode v-bind="props" @edit="openEdit" /></template>
+          <template #node-role="props"><RoleNode v-bind="props" @edit="openEdit" /></template>
+          <template #node-video="props"
+            ><VideoNode v-bind="props" :compact="nodeCompact" @inspect="inspectNode"
+          /></template>
+          <template #node-scene="props"
+            ><SceneNode v-bind="props" @inspect="inspectNode" @drop-media="onDropToScene"
+          /></template>
+          <template #node-audio="props"><AudioNode v-bind="props" @inspect="inspectNode" /></template>
+          <template #node-subtitle="props"><SubtitleNode v-bind="props" @edit="openEdit" /></template>
+          <template #node-hot="props"><HotNode v-bind="props" /></template>
+        </VueFlow>
       </div>
-      <VueFlow
-        id="main-flow"
-        v-model:nodes="nodes"
-        v-model:edges="edges"
-        :default-viewport="{ zoom: 1 }"
-        :connection-radius="100"
-        :disable-keyboard-a11y="true"
-        :zoom-on-double-click="false"
-        :edges-updatable="true"
-        fit-view-on-init
-        @nodesChange="onNodesChange"
-        @edgesChange="onEdgesChange"
-        @connect="onConnect"
-        @edge-update="onEdgeUpdate"
-        @node-click="onNodeClick"
-        @node-double-click="onNodeDoubleClickEvent"
-        @node-drag-stop="onNodeDragStop"
-        @edge-click="onEdgeClick"
-        @pane-click="clearSelection"
-      >
-        <Background pattern-color="#3a3a4a" :gap="20" />
-        <Controls />
-        <MiniMap />
-        <template #node-plot="props"><PlotNode v-bind="props" @edit="openEdit" /></template>
-        <template #node-role="props"><RoleNode v-bind="props" @edit="openEdit" /></template>
-        <template #node-video="props"><VideoNode v-bind="props" :compact="nodeCompact" @inspect="inspectNode" /></template>
-        <template #node-scene="props"><SceneNode v-bind="props" @inspect="inspectNode" @drop-media="onDropToScene" /></template>
-        <template #node-audio="props"><AudioNode v-bind="props" @inspect="inspectNode" /></template>
-        <template #node-subtitle="props"><SubtitleNode v-bind="props" @edit="openEdit" /></template>
-        <template #node-hot="props"><HotNode v-bind="props" /></template>
-      </VueFlow>
-    </div>
-
     </div>
 
     <el-empty v-if="!projectId && !loading" description="选择或新建一个项目开始梳理剧情" style="margin-top: 120px" />
@@ -171,6 +185,37 @@
       </template>
     </el-dialog>
 
+    <!-- 画布历史：自动保存按内容去重，恢复前会先留一份当前内容 -->
+    <el-dialog v-model="versionsVisible" title="🕘 画布历史版本" width="720px">
+      <div class="ver-head">
+        <span class="muted">自动保存会合并 1 分钟内的连续编辑；恢复前会把当前画布先存一份。</span>
+        <el-button size="small" @click="createSnapshot">创建快照</el-button>
+      </div>
+      <el-table :data="versions" size="small" v-loading="versionsLoading" max-height="440">
+        <el-table-column prop="created_at" label="时间" width="150" />
+        <el-table-column label="来源" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="reasonType(row.reason)">{{ reasonLabel(row.reason) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="节点" width="70">
+          <template #default="{ row }">{{ row.node_count }}</template>
+        </el-table-column>
+        <el-table-column label="说明" min-width="180">
+          <template #default="{ row }">
+            {{ row.name || row.description || (row.hash === currentHash ? '当前内容' : '自动保存') }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button link type="primary" :disabled="row.hash === currentHash" @click="restoreVersion(row)"
+              >恢复</el-button
+            >
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
     <!-- 素材选择：带封面的预览网格 -->
     <el-dialog v-model="videoPickVisible" title="选择视频素材" width="860px" append-to-body>
       <div class="pick-grid">
@@ -234,7 +279,10 @@
           </template>
         </el-dropdown>
         <el-button size="small" @click="organizeBoard">⚡ 一键整理</el-button>
-        <span class="board-tip">拖动卡片右侧连接点到另一张卡片左侧（或依次点两个连接点）串顺序；没连线的卡片按位置排在最后。剧情 / 角色 / 热点只作说明</span>
+        <span class="board-tip"
+          >拖动卡片右侧连接点到另一张卡片左侧（或依次点两个连接点）串顺序；没连线的卡片按位置排在最后。剧情 / 角色 /
+          热点只作说明</span
+        >
       </div>
       <el-input
         v-model="sceneNote"
@@ -265,7 +313,9 @@
             <SceneItemNode v-bind="props" @remove="removeBoardItem" />
           </template>
         </VueFlow>
-        <div v-if="!sceneBoardNodes.length" class="board-empty">点「添加节点」放入剧情 / 角色 / 素材 / 音乐 / 字幕卡片，再用连线串起播放顺序</div>
+        <div v-if="!sceneBoardNodes.length" class="board-empty">
+          点「添加节点」放入剧情 / 角色 / 素材 / 音乐 / 字幕卡片，再用连线串起播放顺序
+        </div>
       </div>
       <template #footer>
         <el-button @click="boardVisible = false">取消</el-button>
@@ -285,7 +335,13 @@
 
     <!-- AI 生成 -->
     <el-dialog v-model="aiVisible" title="根据画布生成脚本" width="720px" top="5vh">
-      <el-input v-model="aiResult" type="textarea" :rows="14" v-loading="aiGenerating" placeholder="将把画布上的剧情节点内容作为剧情笔记，点击开始生成（素材、音乐、字幕不参与脚本）" />
+      <el-input
+        v-model="aiResult"
+        type="textarea"
+        :rows="14"
+        v-loading="aiGenerating"
+        placeholder="将把画布上的剧情节点内容作为剧情笔记，点击开始生成（素材、音乐、字幕不参与脚本）"
+      />
       <template #footer>
         <el-button type="primary" :loading="aiGenerating" @click="doAiGenerate">开始生成</el-button>
         <el-button :disabled="!aiResult" @click="saveAiScript">保存为脚本</el-button>
@@ -329,15 +385,27 @@
               <div class="trim-out" :style="{ left: outPct + '%', width: 100 - outPct + '%' }" />
               <div class="trim-sel" :style="{ left: inPct + '%', width: Math.max(0, outPct - inPct) + '%' }" />
               <div class="trim-play" :style="{ left: playPct + '%' }" />
-              <div class="trim-handle" :style="{ left: inPct + '%' }" title="拖我设入点" @pointerdown.stop.prevent="startTrim('in', $event)" />
-              <div class="trim-handle right" :style="{ left: outPct + '%' }" title="拖我设出点" @pointerdown.stop.prevent="startTrim('out', $event)" />
+              <div
+                class="trim-handle"
+                :style="{ left: inPct + '%' }"
+                title="拖我设入点"
+                @pointerdown.stop.prevent="startTrim('in', $event)"
+              />
+              <div
+                class="trim-handle right"
+                :style="{ left: outPct + '%' }"
+                title="拖我设出点"
+                @pointerdown.stop.prevent="startTrim('out', $event)"
+              />
             </div>
             <div class="trim-info">
               <span>入点 {{ fmtShort(inClamped) }}</span>
               <span>出点 {{ fmtShort(outClamped) }}</span>
               <span class="trim-len">
                 {{ fmtShort(clipLen) }}
-                <template v-if="Number(nodeForm.speed) !== 1"> → {{ fmtShort(clipLen / (Number(nodeForm.speed) || 1)) }}</template>
+                <template v-if="Number(nodeForm.speed) !== 1">
+                  → {{ fmtShort(clipLen / (Number(nodeForm.speed) || 1)) }}</template
+                >
               </span>
             </div>
           </div>
@@ -376,17 +444,33 @@
             </el-form-item>
             <el-divider content-position="left">这条镜头的内容</el-divider>
             <el-form-item label="字幕（一行一条，按镜头时长均分）">
-              <el-input v-model="nodeForm.subtitle" type="textarea" :rows="3" resize="none" placeholder="例如：&#10;这一段写不下就换行&#10;每行会依次显示" />
+              <el-input
+                v-model="nodeForm.subtitle"
+                type="textarea"
+                :rows="3"
+                resize="none"
+                placeholder="例如：&#10;这一段写不下就换行&#10;每行会依次显示"
+              />
             </el-form-item>
             <el-form-item label="配乐">
-              <el-select v-model="nodeForm.musicId" clearable filterable placeholder="不设置则用全局 BGM" style="width: 100%">
+              <el-select
+                v-model="nodeForm.musicId"
+                clearable
+                filterable
+                placeholder="不设置则用全局 BGM"
+                style="width: 100%"
+              >
                 <el-option v-for="m in musicFiles" :key="m.id" :label="m.filename" :value="m.id" />
               </el-select>
             </el-form-item>
             <el-form-item v-if="nodeForm.musicId" label="配乐音量">
               <el-slider v-model="nodeForm.musicVolume" :min="0" :max="1" :step="0.05" show-input />
             </el-form-item>
-            <el-alert type="info" :closable="false" title="出点超过素材时长时自动截断；变速后的片段时长会自动换算。镜头配了音乐后不再叠加全局 BGM" />
+            <el-alert
+              type="info"
+              :closable="false"
+              title="出点超过素材时长时自动截断；变速后的片段时长会自动换算。镜头配了音乐后不再叠加全局 BGM"
+            />
           </el-form>
         </div>
       </div>
@@ -412,7 +496,11 @@
         <el-form-item label="背景音乐音量">
           <el-slider v-model="audioForm.volume" :min="0" :max="1" :step="0.05" show-input />
         </el-form-item>
-        <el-alert type="info" :closable="false" title="音乐节点会覆盖全局 BGM，导出时从片头开始铺满全片，并自动淡入淡出" />
+        <el-alert
+          type="info"
+          :closable="false"
+          title="音乐节点会覆盖全局 BGM，导出时从片头开始铺满全片，并自动淡入淡出"
+        />
       </el-form>
       <el-form v-else label-position="top">
         <el-form-item label="转场类型（作用于该镜头之后）">
@@ -446,7 +534,11 @@
         <el-table-column prop="label" label="动作" />
         <el-table-column label="按键" width="160">
           <template #default="{ row }">
-            <el-button size="small" :type="capturingAction === row.action ? 'warning' : 'default'" @click="capturingAction = row.action">
+            <el-button
+              size="small"
+              :type="capturingAction === row.action ? 'warning' : 'default'"
+              @click="capturingAction = row.action"
+            >
               {{ capturingAction === row.action ? '按下新按键…' : keyLabel(keys[row.action]) }}
             </el-button>
           </template>
@@ -572,10 +664,13 @@ function topoLayout(ids, edges, colW, rowH, pad = 0) {
 // 一键整理：按连线方向和关系排版
 function organize() {
   if (!nodes.value.length) return
-  const posMap = topoLayout(nodes.value.map((n) => n.id), edges.value, 300, 190)
-  nodes.value = nodes.value.map((n) =>
-    posMap.has(n.id) ? { ...n, position: posMap.get(n.id) } : n,
+  const posMap = topoLayout(
+    nodes.value.map((n) => n.id),
+    edges.value,
+    300,
+    190,
   )
+  nodes.value = nodes.value.map((n) => (posMap.has(n.id) ? { ...n, position: posMap.get(n.id) } : n))
   markDirty()
   ElMessage.success('已整理布局')
   setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50)
@@ -618,7 +713,11 @@ function markDirty() {
 function onConnect(params) {
   if (!params?.source || !params.target || params.source === params.target) return
   const exists = edges.value.some(
-    (e) => e.source === params.source && e.target === params.target && e.sourceHandle === (params.sourceHandle ?? null) && e.targetHandle === (params.targetHandle ?? null),
+    (e) =>
+      e.source === params.source &&
+      e.target === params.target &&
+      e.sourceHandle === (params.sourceHandle ?? null) &&
+      e.targetHandle === (params.targetHandle ?? null),
   )
   if (!exists) {
     edges.value.push({
@@ -730,7 +829,6 @@ function onShotMeta(e) {
   if (v) v.playbackRate = Number(nodeForm.value.speed) || 1
 }
 
-
 function onShotTime(e) {
   const v = e.target
   shotPlayTime.value = v.currentTime || 0
@@ -834,7 +932,6 @@ function toggleTextSummary() {
   localStorage.setItem('canvas_text_summary', showTextSummary.value ? '1' : '0')
 }
 
-
 /* ---------------- 素材面板与拖拽 ---------------- */
 const paletteVisible = ref(false)
 const paletteItems = ref([])
@@ -862,8 +959,7 @@ function onDropToScene({ id, payload }) {
   appendSceneItem(id, payload)
 }
 function onCanvasDrop(e) {
-  const raw =
-    e.dataTransfer?.getData('application/x-creator-media') || e.dataTransfer?.getData('text/plain')
+  const raw = e.dataTransfer?.getData('application/x-creator-media') || e.dataTransfer?.getData('text/plain')
   if (!raw) return
   let payload
   try {
@@ -930,7 +1026,9 @@ function onNodeDragStop({ node }) {
     const oldNote = (scene.data?.note || '').trim()
     nodes.value = nodes.value
       .filter((n) => n.id !== drag.id)
-      .map((n) => (n.id === scene.id ? { ...n, data: { ...n.data, note: [oldNote, text].filter(Boolean).join('\n') } } : n))
+      .map((n) =>
+        n.id === scene.id ? { ...n, data: { ...n.data, note: [oldNote, text].filter(Boolean).join('\n') } } : n,
+      )
     edges.value = edges.value.filter((e) => e.source !== drag.id && e.target !== drag.id)
     markDirty()
     ElMessage.success('剧情已作为集成节点说明')
@@ -1047,7 +1145,13 @@ function addBoardNode(type) {
 // 一键整理：和主画布一样按连线拓扑分层
 function organizeBoard() {
   if (!sceneBoardNodes.value.length) return
-  const posMap = topoLayout(sceneBoardNodes.value.map((n) => n.id), sceneBoardEdges.value, 240, 190, 40)
+  const posMap = topoLayout(
+    sceneBoardNodes.value.map((n) => n.id),
+    sceneBoardEdges.value,
+    240,
+    190,
+    40,
+  )
   sceneBoardNodes.value = sceneBoardNodes.value.map((n) =>
     posMap.has(n.id) ? { ...n, position: { ...posMap.get(n.id) } } : n,
   )
@@ -1076,7 +1180,17 @@ function saveBoard() {
 
 /* ---------------- 镜头 / 转场设置 ---------------- */
 const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
-const fonts = ['抖音美好体', '思源粗宋', '站酷文艺体', '得意黑', '庞门正道标题体', '无界黑', '优设标题黑', '未来黑', '快乐体']
+const fonts = [
+  '抖音美好体',
+  '思源粗宋',
+  '站酷文艺体',
+  '得意黑',
+  '庞门正道标题体',
+  '无界黑',
+  '优设标题黑',
+  '未来黑',
+  '快乐体',
+]
 
 /* ---------------- 全片字幕样式 ---------------- */
 // 字幕文字写在镜头里，字体 / 字号 / 位置存进画布 JSON，导出和预览都读这一份
@@ -1117,11 +1231,86 @@ function applySubtitleStyle() {
   ElMessage.success('字幕样式已应用，保存后导出和预览都会同步')
 }
 
+// 画布版本历史：自动保存按内容去重，恢复前服务端会先给当前内容留一份
+const versionsVisible = ref(false)
+const versions = ref([])
+const versionsLoading = ref(false)
+const currentHash = ref('')
+const VERSION_REASON = {
+  auto: '自动保存',
+  manual: '手动快照',
+  restore: '恢复',
+  'before-restore': '恢复前',
+  baseline: '基线',
+}
+function reasonLabel(reason) {
+  return VERSION_REASON[reason] || reason
+}
+function reasonType(reason) {
+  if (reason === 'manual') return 'success'
+  if (reason === 'before-restore') return 'warning'
+  return 'info'
+}
+async function openVersions() {
+  versionsVisible.value = true
+  await loadVersions()
+}
+async function loadVersions() {
+  if (!projectId.value) return
+  versionsLoading.value = true
+  try {
+    const { data } = await api.get(`/projects/${projectId.value}/versions`)
+    versions.value = data.items || []
+    currentHash.value = data.currentHash || ''
+  } finally {
+    versionsLoading.value = false
+  }
+}
+async function createSnapshot() {
+  let name
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '给这个版本起个名字，方便以后找回（如「发布前」「改结局前」）。',
+      '创建画布快照',
+      {
+        inputValue: `手动快照 ${new Date().toLocaleString('zh-CN')}`,
+        confirmButtonText: '创建',
+        cancelButtonText: '取消',
+        inputValidator: (v) => (v && v.trim() ? true : '请输入名称'),
+      },
+    )
+    name = value.trim()
+  } catch {
+    return
+  }
+  await save(true)
+  await api.post(`/projects/${projectId.value}/versions`, { name })
+  ElMessage.success('快照已创建')
+  await loadVersions()
+}
+async function restoreVersion(row) {
+  try {
+    await ElMessageBox.confirm(
+      `恢复到 ${row.created_at} 的版本（${row.node_count} 个节点）？当前画布会先自动留一份快照。`,
+      '恢复画布版本',
+      { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  // 先把本地未保存的改动推上去，保证服务端留的「恢复前」快照就是眼前的内容
+  await save(true)
+  await api.post(`/projects/${projectId.value}/versions/${row.id}/restore`)
+  await loadProject()
+  dirty.value = false
+  versionsVisible.value = false
+  setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 100)
+  ElMessage.success('已恢复，当前内容也已自动存档')
+}
+
 // 预览里拖动画面 / 字幕：写回节点与全片样式，保存后导出生效
 function applyShotTransform({ nodeId, transformX, transformY }) {
-  nodes.value = nodes.value.map((n) =>
-    n.id === nodeId ? { ...n, data: { ...n.data, transformX, transformY } } : n,
-  )
+  nodes.value = nodes.value.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, transformX, transformY } } : n))
   markDirty()
 }
 function applySubtitleFromPreview({ position, positionX }) {
@@ -1133,7 +1322,10 @@ const SUB_PREVIEW_W = 180
 const subtitleSample = computed(() => {
   const node = nodes.value.find((n) => n.type === 'video' && String(n.data?.subtitle || '').trim())
   const first = node
-    ? String(node.data.subtitle).split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0]
+    ? String(node.data.subtitle)
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)[0]
     : ''
   if (!first) return '这是一句示例字幕'
   // 真实字幕一般两行以内，样本太长会把预览框塞满，截断后更能看清字号
@@ -1261,9 +1453,7 @@ async function deleteEdge() {
 function applyPanel() {
   if (panelType.value === 'audio') {
     const volume = audioForm.value.volume
-    nodes.value = nodes.value.map((n) =>
-      n.id === editingNodeId.value ? { ...n, data: { ...n.data, volume } } : n,
-    )
+    nodes.value = nodes.value.map((n) => (n.id === editingNodeId.value ? { ...n, data: { ...n.data, volume } } : n))
   } else {
     const f = edgeForm.value
     edges.value = edges.value.map((e) =>
@@ -1309,9 +1499,7 @@ function moveSelected(dx, dy) {
     return
   }
   nodes.value = nodes.value.map((n) =>
-    selectedIds.has(n.id)
-      ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
-      : n,
+    selectedIds.has(n.id) ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n,
   )
   markDirty()
 }
@@ -1340,7 +1528,17 @@ function onKeydown(e) {
     return
   }
   // 任意弹窗打开时不响应快捷键
-  if (kbVisible.value || editVisible.value || videoPickVisible.value || musicPickVisible.value || hotPickVisible.value || boardVisible.value || aiVisible.value || inspectorVisible.value) return
+  if (
+    kbVisible.value ||
+    editVisible.value ||
+    videoPickVisible.value ||
+    musicPickVisible.value ||
+    hotPickVisible.value ||
+    boardVisible.value ||
+    aiVisible.value ||
+    inspectorVisible.value
+  )
+    return
   if (document.querySelector('.el-message-box')) return
   const tag = e.target?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
@@ -1348,13 +1546,17 @@ function onKeydown(e) {
   const key = e.key.toLowerCase()
   const step = e.shiftKey ? 100 : 20
   if (key === 'arrowup' || key === keys.value.up) {
-    e.preventDefault(); moveSelected(0, -step)
+    e.preventDefault()
+    moveSelected(0, -step)
   } else if (key === 'arrowdown' || key === keys.value.down) {
-    e.preventDefault(); moveSelected(0, step)
+    e.preventDefault()
+    moveSelected(0, step)
   } else if (key === 'arrowleft' || key === keys.value.left) {
-    e.preventDefault(); moveSelected(-step, 0)
+    e.preventDefault()
+    moveSelected(-step, 0)
   } else if (key === 'arrowright' || key === keys.value.right) {
-    e.preventDefault(); moveSelected(step, 0)
+    e.preventDefault()
+    moveSelected(step, 0)
   } else if (key === keys.value.detail) {
     if (lastClickId.value) openEdit(lastClickId.value)
   } else if (key === keys.value.delete) {
@@ -1578,7 +1780,12 @@ function freeSpot(width = 240, height = 220) {
   const overlaps = (x, y) =>
     nodes.value.some((n) => {
       const { w, h } = nodeSize(n)
-      return x < n.position.x + w + 20 && x + width + 20 > n.position.x && y < n.position.y + h + 20 && y + height + 20 > n.position.y
+      return (
+        x < n.position.x + w + 20 &&
+        x + width + 20 > n.position.x &&
+        y < n.position.y + h + 20 &&
+        y + height + 20 > n.position.y
+      )
     })
   let x = baseX
   let y = baseY
@@ -1725,7 +1932,7 @@ function openEdit(id) {
 function confirmEdit() {
   const node = nodes.value.find((n) => n.id === editForm.value.id)
   if (node) {
-    const { id, ...rest } = editForm.value
+    const { id: _id, ...rest } = editForm.value
     if (node.type !== 'subtitle') delete rest.font
     node.data = { ...node.data, ...rest }
   }
@@ -1746,9 +1953,7 @@ const aiResult = ref('')
 // 剧本素材：独立剧情节点 + 镜头节点里写的剧情，都算剧情笔记
 // 剧本素材只取独立剧情节点（镜头节点不再承载剧情文字）
 function plotNotes() {
-  return nodes.value
-    .filter((n) => n.type === 'plot')
-    .map((n) => `${n.data.title || '剧情'}：${n.data.content || ''}`)
+  return nodes.value.filter((n) => n.type === 'plot').map((n) => `${n.data.title || '剧情'}：${n.data.content || ''}`)
 }
 
 async function aiFromCanvas() {
@@ -1790,12 +1995,16 @@ function defaultDraftName() {
 async function exportJianying() {
   let draftName
   try {
-    const { value } = await ElMessageBox.prompt('草稿名称会显示在剪映的草稿列表中，同名草稿将被覆盖。', '导出剪映草稿', {
-      inputValue: defaultDraftName(),
-      confirmButtonText: '开始导出',
-      cancelButtonText: '取消',
-      inputValidator: (v) => (v && v.trim() ? true : '请输入草稿名称'),
-    })
+    const { value } = await ElMessageBox.prompt(
+      '草稿名称会显示在剪映的草稿列表中，同名草稿将被覆盖。',
+      '导出剪映草稿',
+      {
+        inputValue: defaultDraftName(),
+        confirmButtonText: '开始导出',
+        cancelButtonText: '取消',
+        inputValidator: (v) => (v && v.trim() ? true : '请输入草稿名称'),
+      },
+    )
     draftName = value.trim()
   } catch {
     return
@@ -1809,6 +2018,10 @@ async function exportJianying() {
     const size = ratio ? `（${ratio} ${data.width}×${data.height}）` : ''
     const mismatch = data.mismatched ? `，${data.mismatched} 个素材比例不同会被裁切` : ''
     ElMessage.success(`已生成剪映草稿${size}：${data.draftPath}（${data.segments} 个片段${mismatch}${skipped}）`)
+    // 剪映版本不认识的滤镜/转场/字体由后端回退，这里把回退项明确告诉用户
+    if (data.warnings?.length) {
+      ElMessage.warning(`有 ${data.warnings.length} 项样式被回退：${data.warnings.slice(0, 2).join('；')}`)
+    }
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '生成剪映草稿失败')
   } finally {
@@ -1842,7 +2055,12 @@ async function autoPlan() {
 }
 
 async function saveAiScript() {
-  const { data: saved } = await api.post('/scripts', { title: `${currentProjectName()} · 画布生成`, content: aiResult.value, projectId: projectId.value, source: 'ai' })
+  const { data: saved } = await api.post('/scripts', {
+    title: `${currentProjectName()} · 画布生成`,
+    content: aiResult.value,
+    projectId: projectId.value,
+    source: 'ai',
+  })
   // 分镜自动追加到当前画布下方
   const { data: cv } = await api.post(`/scripts/${saved.id}/to-canvas`, { projectId: projectId.value })
   if (cv.added > 0) {
@@ -1868,8 +2086,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.canvas-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.canvas-body { flex: 1; min-height: 0; display: flex; }
+.canvas-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.canvas-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .flow-wrap {
   flex: 1;
   min-width: 0;
@@ -1880,7 +2107,10 @@ onUnmounted(() => {
   border-radius: 8px;
   overflow: hidden;
 }
-.flow-wrap :deep(.vue-flow) { width: 100%; height: 100%; }
+.flow-wrap :deep(.vue-flow) {
+  width: 100%;
+  height: 100%;
+}
 /* 上下连接点常驻但淡一点，鼠标移到节点上变实；隐藏会导致拖拽起点抓不到 */
 .flow-wrap :deep(.vue-flow__handle-top),
 .flow-wrap :deep(.vue-flow__handle-bottom) {
@@ -1892,17 +2122,45 @@ onUnmounted(() => {
   opacity: 1;
 }
 /* 连线端点：平时淡一点，悬停连线时变实，拖它可以改接 */
-.flow-wrap :deep(.vue-flow__edgeupdater) { opacity: 0.35; transition: opacity 0.15s; }
+.flow-wrap :deep(.vue-flow__edgeupdater) {
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
 .flow-wrap :deep(.vue-flow__edge:hover .vue-flow__edgeupdater),
-.flow-wrap :deep(.vue-flow__edgeupdater:hover) { opacity: 1; }
+.flow-wrap :deep(.vue-flow__edgeupdater:hover) {
+  opacity: 1;
+}
 
-.toolbar { display: flex; gap: 10px; align-items: center; padding: 12px 16px; flex-wrap: wrap; }
-.spacer { flex: 1; }
-.tip { font-size: 12px; color: var(--el-text-color-secondary); }
-.orphan-toggle { font-size: 12px; }
-.orphan-alert { margin: 0 16px 8px; }
-.board-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-.board-tip { font-size: 12px; color: var(--el-text-color-secondary); }
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px;
+  flex-wrap: wrap;
+}
+.spacer {
+  flex: 1;
+}
+.tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.orphan-toggle {
+  font-size: 12px;
+}
+.orphan-alert {
+  margin: 0 16px 8px;
+}
+.board-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.board-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
 .board-wrap {
   position: relative;
   height: 62vh;
@@ -1911,7 +2169,10 @@ onUnmounted(() => {
   overflow: hidden;
   background: #f7faff;
 }
-.board-wrap :deep(.vue-flow) { width: 100%; height: 100%; }
+.board-wrap :deep(.vue-flow) {
+  width: 100%;
+  height: 100%;
+}
 .board-empty {
   position: absolute;
   inset: 0;
@@ -1937,34 +2198,154 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
 }
-.palette-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--el-border-color-lighter); }
-.palette-body { flex: 1; overflow-y: auto; }
-.palette-sec { padding: 6px 8px 2px; font-size: 11px; color: var(--el-text-color-secondary); }
-.palette-grid { padding: 4px 8px 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.palette-item { cursor: grab; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; overflow: hidden; background: var(--el-fill-color-lighter); }
-.palette-item img { width: 100%; height: 56px; object-fit: cover; display: block; }
-.palette-item span { display: block; font-size: 10px; padding: 3px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-item.music, .palette-item.subtitle { grid-column: span 2; display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
-.palette-item.music span, .palette-item.subtitle span { padding: 0; }
-.palette-icon { font-size: 16px; flex: 0 0 auto; }
-.palette-empty { grid-column: span 2; text-align: center; font-size: 12px; color: var(--el-text-color-secondary); padding: 12px 0; }
-.palette-tip { padding: 4px 10px 10px; font-size: 11px; line-height: 1.6; color: var(--el-text-color-placeholder); border-top: 1px dashed var(--el-border-color-lighter); }
-.play-fallback { text-align: center; padding: 40px 0; color: var(--el-text-color-secondary); }
+.palette-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.palette-body {
+  flex: 1;
+  overflow-y: auto;
+}
+.palette-sec {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.palette-grid {
+  padding: 4px 8px 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.palette-item {
+  cursor: grab;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--el-fill-color-lighter);
+}
+.palette-item img {
+  width: 100%;
+  height: 56px;
+  object-fit: cover;
+  display: block;
+}
+.palette-item span {
+  display: block;
+  font-size: 10px;
+  padding: 3px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-item.music,
+.palette-item.subtitle {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.palette-item.music span,
+.palette-item.subtitle span {
+  padding: 0;
+}
+.palette-icon {
+  font-size: 16px;
+  flex: 0 0 auto;
+}
+.palette-empty {
+  grid-column: span 2;
+  text-align: center;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  padding: 12px 0;
+}
+.palette-tip {
+  padding: 4px 10px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--el-text-color-placeholder);
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+.play-fallback {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--el-text-color-secondary);
+}
 
 /* 镜头弹窗：左播放 + 右操作 */
-.shot-body { display: flex; gap: 18px; align-items: flex-start; }
-.shot-player { width: 520px; flex: 0 0 520px; display: flex; flex-direction: column; gap: 8px; }
-.shot-stage { background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; }
-.shot-video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
-.shot-fallback { color: #ccc; text-align: center; padding: 24px; font-size: 13px; line-height: 1.7; }
-.shot-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--el-text-color-secondary); }
-.shot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
-.shot-tools { display: flex; gap: 8px; }
-.shot-tools .el-button { flex: 1; margin-left: 0; }
+.shot-body {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.shot-player {
+  width: 520px;
+  flex: 0 0 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shot-stage {
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shot-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+.shot-fallback {
+  color: #ccc;
+  text-align: center;
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.shot-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.shot-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 380px;
+}
+.shot-tools {
+  display: flex;
+  gap: 8px;
+}
+.shot-tools .el-button {
+  flex: 1;
+  margin-left: 0;
+}
 
 /* 裁剪条 */
-.drawer-tip { font-size: 12px; color: var(--el-text-color-placeholder); margin-top: 8px; line-height: 1.6; }
-.trim-wrap { user-select: none; }
+.drawer-tip {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.trim-wrap {
+  user-select: none;
+}
 .trim {
   position: relative;
   height: 30px;
@@ -1973,7 +2354,13 @@ onUnmounted(() => {
   cursor: pointer;
   touch-action: none;
 }
-.trim-out { position: absolute; top: 0; bottom: 0; background: rgba(0, 0, 0, 0.45); pointer-events: none; }
+.trim-out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
 .trim-sel {
   position: absolute;
   top: 0;
@@ -1983,7 +2370,16 @@ onUnmounted(() => {
   box-shadow: inset 0 0 0 2px var(--el-color-primary);
   pointer-events: none;
 }
-.trim-play { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 4px rgba(0, 0, 0, 0.6); pointer-events: none; }
+.trim-play {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
 .trim-handle {
   position: absolute;
   top: -2px;
@@ -1997,35 +2393,166 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
-.trim-handle::after { content: ''; width: 2px; height: 12px; background: rgba(255, 255, 255, 0.9); border-radius: 1px; }
-.trim-handle:hover { background: var(--el-color-primary-light-3); }
-.trim-info { display: flex; justify-content: space-between; font-size: 12px; color: var(--el-text-color-secondary); margin-top: 6px; }
-.trim-len { color: var(--el-color-primary); font-weight: 600; }
-.shot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
-.shot-form { flex: 1; min-width: 0; max-height: 66vh; overflow-y: auto; padding-right: 6px; }
+.trim-handle::after {
+  content: '';
+  width: 2px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 1px;
+}
+.trim-handle:hover {
+  background: var(--el-color-primary-light-3);
+}
+.trim-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 6px;
+}
+.trim-len {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+.shot-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 380px;
+}
+.shot-form {
+  flex: 1;
+  min-width: 0;
+  max-height: 66vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
 /* 素材/音乐选择弹窗：预览卡片 */
-.pick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-height: 62vh; overflow-y: auto; padding-right: 4px; }
-.pick-card { border: 1px solid var(--el-border-color-lighter); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--el-fill-color-lighter); transition: border-color 0.15s, box-shadow 0.15s; }
-.pick-card:hover { border-color: var(--el-color-primary); box-shadow: 0 2px 10px rgba(64, 158, 255, 0.25); }
-.pick-thumb { position: relative; aspect-ratio: 16 / 9; background: #000; }
-.pick-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.pick-badge { position: absolute; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: #fff; background: rgba(0, 0, 0, 0.6); }
-.pick-badge.dur { right: 6px; bottom: 6px; }
-.pick-badge.ratio { left: 6px; top: 6px; background: rgba(64, 158, 255, 0.85); }
-.pick-badge.ratio.landscape { background: rgba(230, 162, 60, 0.9); }
-.pick-badge.ratio.square { background: rgba(103, 194, 58, 0.9); }
-.pick-name { padding: 6px 8px 4px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-note { padding: 0 8px 6px; font-size: 11px; color: var(--el-text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-empty { grid-column: 1 / -1; text-align: center; color: var(--el-text-color-secondary); font-size: 13px; padding: 40px 0; }
-.pick-music-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-.pick-music { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; cursor: pointer; }
-.pick-music:hover { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
-.pick-music-icon { font-size: 16px; }
-.pick-music-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-music-ext { font-size: 11px; color: var(--el-text-color-secondary); }
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.pick-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--el-fill-color-lighter);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.pick-card:hover {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 2px 10px rgba(64, 158, 255, 0.25);
+}
+.pick-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.pick-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pick-badge {
+  position: absolute;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 16px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+}
+.pick-badge.dur {
+  right: 6px;
+  bottom: 6px;
+}
+.pick-badge.ratio {
+  left: 6px;
+  top: 6px;
+  background: rgba(64, 158, 255, 0.85);
+}
+.pick-badge.ratio.landscape {
+  background: rgba(230, 162, 60, 0.9);
+}
+.pick-badge.ratio.square {
+  background: rgba(103, 194, 58, 0.9);
+}
+.pick-name {
+  padding: 6px 8px 4px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-note {
+  padding: 0 8px 6px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  padding: 40px 0;
+}
+.pick-music-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pick-music {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.pick-music:hover {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+.pick-music-icon {
+  font-size: 16px;
+}
+.pick-music-name {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-music-ext {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
 /* 字幕样式弹窗：左边 9:16 画面预览，右边参数 */
-.sub-style-body { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
-.sub-preview { flex: 0 0 180px; margin: 0 auto; text-align: center; }
+.sub-style-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+.sub-preview {
+  flex: 0 0 180px;
+  margin: 0 auto;
+  text-align: center;
+}
 .sub-frame {
   position: relative;
   width: 180px;
@@ -2033,7 +2560,9 @@ onUnmounted(() => {
   border-radius: 10px;
   overflow: hidden;
   background: linear-gradient(165deg, #2b3a4d 0%, #45566b 45%, #1f2937 100%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 4px 14px rgba(0, 0, 0, 0.18);
 }
 /* 假画面：几条竖向渐变模拟素材，让字幕位置更好判断 */
 .sub-frame::before {
@@ -2041,7 +2570,13 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 24%, transparent 24% 32%, rgba(255, 255, 255, 0.04) 32% 68%, transparent 68%),
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.06) 0 24%,
+      transparent 24% 32%,
+      rgba(255, 255, 255, 0.04) 32% 68%,
+      transparent 68%
+    ),
     radial-gradient(circle at 70% 30%, rgba(255, 255, 255, 0.12), transparent 55%);
 }
 .sub-sample {
@@ -2052,10 +2587,30 @@ onUnmounted(() => {
   color: #fff;
   font-weight: 700;
   line-height: 1.35;
-  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.9), 0 0 2px #000;
+  text-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.9),
+    0 0 2px #000;
   white-space: pre-wrap;
   word-break: break-all;
 }
-.sub-preview-tip { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 8px; }
-.sub-form { flex: 1 1 300px; min-width: 0; }
+.sub-preview-tip {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  margin-top: 8px;
+}
+.sub-form {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.ver-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
 </style>

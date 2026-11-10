@@ -1,5 +1,6 @@
 const path = require('path')
 const fs = require('fs')
+const crypto = require('crypto')
 const Database = require('better-sqlite3')
 
 const dataDir = path.join(__dirname, '..', 'data')
@@ -83,10 +84,62 @@ CREATE TABLE IF NOT EXISTS hot_history (
   last_seen_at TEXT,
   platforms TEXT DEFAULT ''
 );
+
+-- 画布版本：自动保存时按内容哈希去重，支持手动快照与恢复
+CREATE TABLE IF NOT EXISTS project_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL,
+  name TEXT DEFAULT '',
+  description TEXT DEFAULT '',
+  canvas TEXT NOT NULL,
+  node_count INTEGER DEFAULT 0,
+  hash TEXT DEFAULT '',
+  reason TEXT DEFAULT 'auto',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_project_versions_project ON project_versions(project_id, id DESC);
+
+-- 发布台账：抖音等平台只能手动记录链接与数据，这里只存事实，不猜测
+CREATE TABLE IF NOT EXISTS publications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  platform TEXT DEFAULT 'douyin',
+  url TEXT DEFAULT '',
+  caption TEXT DEFAULT '',
+  tags TEXT DEFAULT '',
+  published_at TEXT,
+  note TEXT DEFAULT '',
+  topic_id INTEGER,
+  script_id INTEGER,
+  project_id INTEGER,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_publications_published ON publications(published_at DESC, id DESC);
+
+-- 发布数据快照：同一条发布同一天只保留一条（手动回填或以后接口同步都走这张表）
+CREATE TABLE IF NOT EXISTS publication_stats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  publication_id INTEGER NOT NULL,
+  stat_date TEXT NOT NULL,
+  views INTEGER DEFAULT 0,
+  likes INTEGER DEFAULT 0,
+  comments INTEGER DEFAULT 0,
+  shares INTEGER DEFAULT 0,
+  favorites INTEGER DEFAULT 0,
+  followers INTEGER DEFAULT 0,
+  note TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(publication_id, stat_date)
+);
+CREATE INDEX IF NOT EXISTS idx_publication_stats_pub ON publication_stats(publication_id, stat_date DESC);
 `)
 
 // 老库补列：素材归属 media（媒体库）/ asset（素材库）
-const mediaCols = db.prepare('PRAGMA table_info(media_files)').all().map((c) => c.name)
+const mediaCols = db
+  .prepare('PRAGMA table_info(media_files)')
+  .all()
+  .map((c) => c.name)
 if (!mediaCols.includes('library')) {
   db.exec("ALTER TABLE media_files ADD COLUMN library TEXT DEFAULT 'media'")
 }
@@ -109,13 +162,19 @@ if (!mediaCols.includes('removed_at')) {
 }
 
 // 老库补列：脚本来自哪条选题
-const scriptCols = db.prepare('PRAGMA table_info(scripts)').all().map((c) => c.name)
+const scriptCols = db
+  .prepare('PRAGMA table_info(scripts)')
+  .all()
+  .map((c) => c.name)
 if (!scriptCols.includes('topic_id')) {
   db.exec('ALTER TABLE scripts ADD COLUMN topic_id INTEGER')
 }
 
 // 老库补列：音乐同名封面与歌词（由本地转码工具输出）
-const musicCols = db.prepare('PRAGMA table_info(music_files)').all().map((c) => c.name)
+const musicCols = db
+  .prepare('PRAGMA table_info(music_files)')
+  .all()
+  .map((c) => c.name)
 if (!musicCols.includes('cover_path')) {
   db.exec("ALTER TABLE music_files ADD COLUMN cover_path TEXT DEFAULT ''")
 }
@@ -176,5 +235,34 @@ const backfillTopicLinks = db.transaction(() => {
   for (const row of rows) setTopic.run(row.id, row.script_id)
 })
 backfillTopicLinks()
+
+// 老项目补一条基线版本，打开历史面板时至少能看到「接入版本功能时」的内容
+const backfillVersions = db.transaction(() => {
+  const rows = db
+    .prepare(
+      `SELECT p.id, p.canvas FROM projects p
+       WHERE NOT EXISTS (SELECT 1 FROM project_versions v WHERE v.project_id = p.id)`,
+    )
+    .all()
+  const insert = db.prepare(`
+    INSERT INTO project_versions (project_id, name, canvas, node_count, hash, reason)
+    VALUES (?, '基线版本', ?, ?, ?, 'baseline')
+  `)
+  for (const row of rows) {
+    const canvas = row.canvas || '{}'
+    let count
+    try {
+      const data = JSON.parse(canvas)
+      count = Array.isArray(data?.nodes) ? data.nodes.length : 0
+    } catch {
+      count = 0
+    }
+    const hash = crypto.createHash('sha1').update(canvas).digest('hex')
+    insert.run(row.id, canvas, count, hash)
+  }
+  return rows.length
+})
+const baselineCount = backfillVersions()
+if (baselineCount) console.log(`[db] 为 ${baselineCount} 个项目补了基线版本`)
 
 module.exports = db

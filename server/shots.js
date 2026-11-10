@@ -5,12 +5,15 @@ function parseShots(content) {
   const lines = content.split(/\r?\n/)
 
   // 1) Markdown 表格行
-  const tableLines = lines.filter(
-    (l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s:|-]+\|\s*$/.test(l),
-  )
+  const tableLines = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s:|-]+\|\s*$/.test(l))
   if (tableLines.length >= 2) {
     const rows = tableLines.map((l) =>
-      l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()),
+      l
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((c) => c.trim()),
     )
     let labels = null
     if (rows[0].some((c) => /镜号|画面/.test(c))) {
@@ -23,7 +26,10 @@ function parseShots(content) {
       const numMatch = cells[0].match(/\d+/)
       const n = numMatch ? numMatch[0] : String(shots.length + 1)
       const rest = labels
-        ? cells.slice(1).map((c, i) => (c ? `${labels[i + 1] || ''}：${c}` : '')).filter(Boolean)
+        ? cells
+            .slice(1)
+            .map((c, i) => (c ? `${labels[i + 1] || ''}：${c}` : ''))
+            .filter(Boolean)
         : cells.slice(1)
       shots.push({ title: `镜${n}`, content: rest.join('\n') || cells.join(' ') })
     }

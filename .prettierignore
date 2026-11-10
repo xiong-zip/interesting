@@ -1,0 +1,7 @@
+dist/
+node_modules/
+data/
+media/
+music/
+package-lock.json
+.trae/

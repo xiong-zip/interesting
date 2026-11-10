@@ -12,10 +12,12 @@ function linkTopic(scriptId, topicId) {
   const topic = db.prepare('SELECT * FROM topics WHERE id = ?').get(topicId)
   if (!topic) return
   // 选题从「待评估」进入「在写」，已写/已发/放弃保持原状态
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE topics SET status = CASE WHEN status = 'pending' THEN 'writing' ELSE status END,
       updated_at = datetime('now','localtime') WHERE id = ?
-  `).run(topicId)
+  `,
+  ).run(topicId)
   db.prepare('UPDATE scripts SET topic_id = ? WHERE id = ?').run(topicId, scriptId)
 }
 
@@ -26,15 +28,19 @@ function unlinkTopics(scriptId) {
   // 选题下还有别的脚本就别改状态，全没了才回到待评估
   const left = db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE topic_id = ?').get(row.topic_id).n
   if (left > 0) return
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE topics SET status = CASE WHEN status IN ('writing','done') THEN 'pending' ELSE status END,
       updated_at = datetime('now','localtime') WHERE id = ?
-  `).run(row.topic_id)
+  `,
+  ).run(row.topic_id)
 }
 
 router.get('/list', (req, res) => {
   // 老脚本没回写 project_id，用「由脚本「xxx」自动生成分镜画布」这个描述兜底关联
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT s.*, COALESCE(p.name, p2.name) AS project_name, COALESCE(p.id, p2.id) AS project_id_resolved,
            t.title AS topic_title, t.status AS topic_status
     FROM scripts s
@@ -42,7 +48,9 @@ router.get('/list', (req, res) => {
     LEFT JOIN projects p2 ON p2.description = '由脚本「' || s.title || '」自动生成分镜画布'
     LEFT JOIN topics t ON t.id = s.topic_id
     ORDER BY s.updated_at DESC
-  `).all()
+  `,
+    )
+    .all()
   res.json({ items: rows })
 })
 
@@ -113,6 +121,7 @@ router.delete('/:id', (req, res) => {
 
   // 选题上的关联一起解开，避免指向已删除的脚本
   unlinkTopics(script.id)
+  db.prepare('UPDATE publications SET script_id = NULL WHERE script_id = ?').run(script.id)
   db.prepare('DELETE FROM scripts WHERE id = ?').run(script.id)
   res.json({ ok: true, removedNodes, removedProject, projectName })
 })

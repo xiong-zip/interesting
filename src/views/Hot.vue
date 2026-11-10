@@ -3,7 +3,13 @@
     <div class="toolbar">
       <h2>🔥 热点中心</h2>
       <div>
-        <el-alert v-if="degraded" type="warning" :closable="false" title="热榜接口不可用，当前为模拟数据" style="margin-right: 12px; display: inline-block; padding: 2px 10px" />
+        <el-alert
+          v-if="degraded"
+          type="warning"
+          :closable="false"
+          title="热榜接口不可用，当前为模拟数据"
+          style="margin-right: 12px; display: inline-block; padding: 2px 10px"
+        />
         <el-button :loading="loading" @click="refresh">刷新热榜</el-button>
       </div>
     </div>
@@ -13,6 +19,20 @@
         <el-radio-button value="">全部</el-radio-button>
         <el-radio-button v-for="p in platforms" :key="p.key" :value="p.key">{{ p.name }}</el-radio-button>
       </el-radio-group>
+    </div>
+
+    <div v-if="health.length" class="health">
+      <span class="muted">抓取状态：</span>
+      <el-tag
+        v-for="h in health"
+        :key="h.key"
+        size="small"
+        effect="plain"
+        :type="healthType(h)"
+        :title="healthTip(h)"
+        class="health-tag"
+        >{{ h.name }} · {{ healthLabel(h) }}</el-tag
+      >
     </div>
 
     <el-table :data="filtered" v-loading="loading" stripe>
@@ -25,12 +45,15 @@
             :color="p.color"
             style="color: #fff; border: none; margin-right: 4px"
             size="small"
-          >{{ p.name }}</el-tag>
+            >{{ p.name }}</el-tag
+          >
         </template>
       </el-table-column>
       <el-table-column label="标题" min-width="300">
         <template #default="{ row }">
-          <a v-if="row.url" :href="row.url" target="_blank" class="title-link" @click.prevent="openExternal(row)">{{ row.title }}</a>
+          <a v-if="row.url" :href="row.url" target="_blank" class="title-link" @click.prevent="openExternal(row)">{{
+            row.title
+          }}</a>
           <span v-else>{{ row.title }}</span>
         </template>
       </el-table-column>
@@ -40,7 +63,9 @@
       <el-table-column label="热度" width="140" sortable>
         <template #default="{ row }">
           <div>{{ row.hot ? row.hot.toLocaleString() : '-' }}</div>
-          <div v-if="row.firstSeen" class="muted">首次 {{ row.firstSeen.slice(5, 10) }} · 峰值 {{ fmtHot(row.hotPeak) }}</div>
+          <div v-if="row.firstSeen" class="muted">
+            首次 {{ row.firstSeen.slice(5, 10) }} · 峰值 {{ fmtHot(row.hotPeak) }}
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="200">
@@ -94,6 +119,21 @@ const items = ref([])
 const platforms = ref([])
 const platform = ref('')
 const degraded = ref(false)
+const health = ref([])
+
+function healthType(h) {
+  if (h.status === 'ok') return 'success'
+  if (h.status === 'stale') return 'warning'
+  return 'danger'
+}
+function healthLabel(h) {
+  return { ok: '正常', stale: '数据偏旧', degraded: '抓取失败', down: '不可用' }[h.status] || h.status
+}
+function healthTip(h) {
+  const lines = [`最近成功：${h.lastSuccessAt || '从未'}`, `条目数：${h.itemCount}`]
+  if (h.error) lines.push(`最近失败：${h.lastErrorAt}`, h.error)
+  return lines.join('\n')
+}
 
 const styles = ['口语化、有网感', '专业干货', '幽默搞笑', '情感共鸣', '悬念反转']
 
@@ -150,6 +190,7 @@ async function load() {
     const { data } = await api.get('/hot/list')
     items.value = data.items || []
     degraded.value = data.degraded
+    health.value = data.health || []
   } finally {
     loading.value = false
   }
@@ -160,6 +201,7 @@ async function refresh() {
     const { data } = await api.post('/hot/refresh')
     items.value = data.items || []
     degraded.value = data.degraded
+    health.value = data.health || []
   } finally {
     loading.value = false
   }
@@ -226,7 +268,9 @@ onMounted(async () => {
   try {
     const { data } = await api.get('/hot/platforms')
     platforms.value = data
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 })
 </script>
 
@@ -238,6 +282,20 @@ onMounted(async () => {
 }
 .filters {
   margin: 14px 0;
+}
+.health {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: -6px 0 12px;
+}
+.health-tag {
+  cursor: help;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
 }
 .title-link {
   color: var(--el-color-primary);

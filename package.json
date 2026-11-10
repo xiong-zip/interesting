@@ -2,13 +2,19 @@
   "name": "creator-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "个人自媒体创作平台：热点聚合 + 本地视频媒体库 + 无限画布剧情梳理 + AI 脚本生成",
+  "description": "个人自媒体创作平台：热点聚合 + 选题 + 本地媒体库 + 无限画布 + AI 脚本 + 剪映导出 + 发布台账",
   "scripts": {
     "dev:server": "node server/index.js",
     "dev:web": "vite",
     "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
     "build": "vite build",
-    "start": "NODE_ENV=production node server/index.js"
+    "start": "NODE_ENV=production node server/index.js",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -27,7 +33,14 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
-    "vite": "^6.0.11"
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.12.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "vite": "^6.0.11",
+    "vitest": "^5.1.0"
   }
 }

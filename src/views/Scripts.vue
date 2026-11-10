@@ -38,10 +38,11 @@
         </template>
       </el-table-column>
       <el-table-column prop="updated_at" label="更新时间" width="160" />
-      <el-table-column label="操作" width="230">
+      <el-table-column label="操作" width="320">
         <template #default="{ row }">
           <el-button size="small" type="primary" plain @click="openCanvas(row)">打开画布</el-button>
           <el-button size="small" @click="edit(row)">编辑</el-button>
+          <el-button size="small" plain @click="recordPublish(row)">记录发布</el-button>
           <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -94,9 +95,7 @@ function clearTopicFilter() {
   router.replace('/scripts')
 }
 // 放弃的选题默认不出现，除非这个脚本已经关联着它
-const topicOptions = computed(() =>
-  topics.value.filter((t) => t.status !== 'dropped' || t.id === form.value.topicId),
-)
+const topicOptions = computed(() => topics.value.filter((t) => t.status !== 'dropped' || t.id === form.value.topicId))
 
 async function load() {
   loading.value = true
@@ -150,10 +149,15 @@ async function openCanvas(row) {
   router.push(`/canvas/${data.projectId}`)
 }
 
+// 发布后回到台账登记：链接和数据都手动补，脚本/选题自动带上
+function recordPublish(row) {
+  router.push({ path: '/publish', query: { new: '1', scriptId: row.id } })
+}
+
 async function remove(row) {
   // 问清楚：只删脚本，还是把关联画布一起删
   const hasProject = !!row.project_name
-  let canvas = null
+  let canvas
   try {
     await ElMessageBox.confirm(
       hasProject
@@ -190,11 +194,37 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.title-link { color: var(--el-color-primary); font-weight: 500; cursor: pointer; }
-.title-link:hover { text-decoration: underline; }
-.muted { color: var(--el-text-color-placeholder); font-size: 12px; }
-.topic-filter { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.topic-tag { cursor: pointer; max-width: 100%; }
-.form-hint { font-size: 11px; color: var(--el-text-color-placeholder); line-height: 1.5; }
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.title-link {
+  color: var(--el-color-primary);
+  font-weight: 500;
+  cursor: pointer;
+}
+.title-link:hover {
+  text-decoration: underline;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+.topic-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.topic-tag {
+  cursor: pointer;
+  max-width: 100%;
+}
+.form-hint {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  line-height: 1.5;
+}
 </style>

@@ -2,6 +2,7 @@
 const path = require('path')
 const fs = require('fs')
 const { spawn, spawnSync } = require('child_process')
+const { pythonBin } = require('./runtime')
 
 const THUMB_DIR = path.join(__dirname, '..', 'data', 'thumbs')
 
@@ -15,7 +16,7 @@ function ensureThumb(id, filepath) {
   const out = thumbPath(id)
   if (fs.existsSync(out) && fs.statSync(out).size > 0) return out
 
-  const python = process.env.PYTHON || 'python'
+  const python = pythonBin()
   const r = spawnSync(python, [path.join(__dirname, 'thumb.py'), filepath, out], { encoding: 'utf8', timeout: 120000 })
   if (r.error || r.status !== 0 || !fs.existsSync(out) || fs.statSync(out).size === 0) {
     if (fs.existsSync(out)) fs.unlinkSync(out)
@@ -32,7 +33,7 @@ function ensureThumbAsync(id, filepath) {
     fs.mkdirSync(THUMB_DIR, { recursive: true })
     const out = thumbPath(id)
     if (fs.existsSync(out) && fs.statSync(out).size > 0) return resolve(out)
-    const child = spawn(process.env.PYTHON || 'python', [path.join(__dirname, 'thumb.py'), filepath, out], { stdio: 'ignore' })
+    const child = spawn(pythonBin(), [path.join(__dirname, 'thumb.py'), filepath, out], { stdio: 'ignore' })
     child.on('error', () => resolve(null))
     child.on('close', (code) => resolve(code === 0 && fs.existsSync(out) ? out : null))
   })

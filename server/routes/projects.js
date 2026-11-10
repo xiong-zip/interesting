@@ -2,15 +2,27 @@ const express = require('express')
 const db = require('../db')
 const { exportDraft } = require('../jianying/cli')
 const { buildPlan } = require('../jianying/build-plan')
+const { snapshotProject, listVersions, hashCanvas } = require('../versions')
+const { archiveProject } = require('../backup')
 
 const router = express.Router()
 
 router.get('/list', (req, res) => {
-  const rows = db.prepare('SELECT id, name, description, created_at, updated_at FROM projects ORDER BY updated_at DESC').all()
+  const rows = db
+    .prepare('SELECT id, name, description, created_at, updated_at FROM projects ORDER BY updated_at DESC')
+    .all()
   // 由脚本生成的画布标出脚本名；脚本已经被删掉的标记 orphan，前端可以折叠起来
-  const scriptTitles = new Set(db.prepare('SELECT title FROM scripts').all().map((r) => r.title))
+  const scriptTitles = new Set(
+    db
+      .prepare('SELECT title FROM scripts')
+      .all()
+      .map((r) => r.title),
+  )
   const linkedIds = new Set(
-    db.prepare('SELECT project_id FROM scripts WHERE project_id IS NOT NULL').all().map((r) => r.project_id),
+    db
+      .prepare('SELECT project_id FROM scripts WHERE project_id IS NOT NULL')
+      .all()
+      .map((r) => r.project_id),
   )
   const items = rows.map((p) => {
     const m = /^由脚本「(.+?)」自动生成分镜画布$/.exec(p.description || '')
@@ -24,9 +36,7 @@ router.get('/list', (req, res) => {
 router.post('/', (req, res) => {
   const { name, description } = req.body || {}
   if (!name?.trim()) return res.status(400).json({ error: '项目名不能为空' })
-  const info = db
-    .prepare('INSERT INTO projects (name, description) VALUES (?, ?)')
-    .run(name.trim(), description || '')
+  const info = db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)').run(name.trim(), description || '')
   res.json({ id: info.lastInsertRowid })
 })
 
@@ -40,21 +50,92 @@ router.put('/:id', (req, res) => {
   const { name, description, canvas } = req.body || {}
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id)
   if (!row) return res.status(404).json({ error: '项目不存在' })
+  const nextCanvas = canvas ? JSON.stringify(canvas) : row.canvas
   db.prepare(
     "UPDATE projects SET name = ?, description = ?, canvas = ?, updated_at = datetime('now','localtime') WHERE id = ?",
-  ).run(
-    name?.trim() || row.name,
-    description ?? row.description,
-    canvas ? JSON.stringify(canvas) : row.canvas,
-    req.params.id,
-  )
+  ).run(name?.trim() || row.name, description ?? row.description, nextCanvas, req.params.id)
+  // 自动快照：哈希相同不写入，窗口内编辑合并到上一条，避免每 2 秒刷一条版本
+  if (canvas) {
+    try {
+      snapshotProject({ id: row.id, canvas: nextCanvas }, { reason: 'auto' })
+    } catch (e) {
+      console.error('[versions] 自动快照失败:', e.message)
+    }
+  }
   res.json({ ok: true })
 })
 
 router.delete('/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id)
+  // 删除前把项目、脚本、历史版本归档成 JSON，误删还有找回入口
+  let archive = null
+  if (row) {
+    try {
+      archive = archiveProject(row)
+    } catch (e) {
+      console.error('[backup] 项目归档失败:', e.message)
+    }
+  }
   db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id)
+  db.prepare('DELETE FROM project_versions WHERE project_id = ?').run(req.params.id)
+  // 发布记录保留，但断开关联，避免指向已删除的脚本/项目
+  db.prepare(
+    'UPDATE publications SET script_id = NULL WHERE script_id IN (SELECT id FROM scripts WHERE project_id = ?)',
+  ).run(req.params.id)
   db.prepare('DELETE FROM scripts WHERE project_id = ?').run(req.params.id)
-  res.json({ ok: true })
+  db.prepare('UPDATE publications SET project_id = NULL WHERE project_id = ?').run(req.params.id)
+  db.prepare('UPDATE topics SET project_id = NULL WHERE project_id = ?').run(req.params.id)
+  res.json({ ok: true, archive })
+})
+
+// 历史版本列表：只返回元数据，画布内容按需单独取
+router.get('/:id/versions', (req, res) => {
+  const row = db.prepare('SELECT canvas FROM projects WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: '项目不存在' })
+  res.json({ items: listVersions(Number(req.params.id)), currentHash: hashCanvas(row.canvas) })
+})
+
+router.get('/:id/versions/:versionId', (req, res) => {
+  const version = db
+    .prepare('SELECT * FROM project_versions WHERE id = ? AND project_id = ?')
+    .get(req.params.versionId, req.params.id)
+  if (!version) return res.status(404).json({ error: '版本不存在' })
+  res.json(version)
+})
+
+// 手动快照：允许与当前内容相同，便于打一个「发布前」标记
+router.post('/:id/versions', (req, res) => {
+  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: '项目不存在' })
+  const id = snapshotProject(row, {
+    reason: 'manual',
+    name: String(req.body?.name || '手动快照').slice(0, 60),
+    description: String(req.body?.description || '').slice(0, 200),
+    force: true,
+    allowDuplicate: true,
+  })
+  res.json({ ok: true, id })
+})
+
+router.post('/:id/versions/:versionId/restore', (req, res) => {
+  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: '项目不存在' })
+  const version = db
+    .prepare('SELECT * FROM project_versions WHERE id = ? AND project_id = ?')
+    .get(req.params.versionId, req.params.id)
+  if (!version) return res.status(404).json({ error: '版本不存在' })
+
+  // 恢复前先给当前内容留一份，避免「恢复」本身变成不可逆操作
+  snapshotProject(row, { reason: 'before-restore', name: `恢复前 · ${version.created_at}`, force: true })
+  db.prepare("UPDATE projects SET canvas = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(
+    version.canvas,
+    row.id,
+  )
+  snapshotProject(
+    { id: row.id, canvas: version.canvas },
+    { reason: 'restore', name: `恢复自 ${version.created_at}`, force: true, allowDuplicate: true },
+  )
+  res.json({ ok: true, canvas: JSON.parse(version.canvas || '{}') })
 })
 
 // 按画布故事线生成剪映草稿
@@ -131,7 +212,10 @@ router.post('/:id/auto-plan', async (req, res) => {
     .filter(Boolean)
   const topic = (req.body?.topic || project.name || '').trim()
   const key = db.prepare("SELECT value FROM settings WHERE key = 'glm_api_key'").get()?.value || process.env.GLM_API_KEY
-  const model = db.prepare("SELECT value FROM settings WHERE key = 'glm_model'").get()?.value || process.env.GLM_MODEL || 'glm-4-flash'
+  const model =
+    db.prepare("SELECT value FROM settings WHERE key = 'glm_model'").get()?.value ||
+    process.env.GLM_MODEL ||
+    'glm-4-flash'
 
   let shots = []
   if (key) {
@@ -142,7 +226,9 @@ router.post('/:id/auto-plan', async (req, res) => {
         videos.map((v, i) => `${i + 1}. ${v.filename}${v.note ? `（${v.note}）` : ''}`).join('\n'),
         notes.length ? `【已有剧情笔记】\n${notes.join('\n')}` : '',
         '只输出 JSON 数组，不要任何解释，格式：[{"subtitle":"该镜头字幕","material":"素材文件名或序号"}]，6-10 个镜头。',
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
       const resp = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
@@ -178,7 +264,11 @@ router.post('/:id/auto-plan', async (req, res) => {
   const edges = []
   shots.forEach((shot, i) => {
     const hint = String(shot.material || '')
-    let video = videos.find((v, idx) => !used.has(v.id) && (hint.includes(v.filename) || v.filename.includes(hint) || String(idx + 1) === hint.replace(/\D/g, '')))
+    let video = videos.find(
+      (v, idx) =>
+        !used.has(v.id) &&
+        (hint.includes(v.filename) || v.filename.includes(hint) || String(idx + 1) === hint.replace(/\D/g, '')),
+    )
     if (!video) video = videos[i % videos.length]
     used.add(video.id)
     const pid = `auto-p-${i}`

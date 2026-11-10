@@ -53,7 +53,8 @@
             link
             type="primary"
             @click="router.push({ path: '/scripts', query: { topic: row.id } })"
-          >{{ row.script_count }} 个脚本</el-button>
+            >{{ row.script_count }} 个脚本</el-button
+          >
           <span v-else class="muted">暂无脚本</span>
         </template>
       </el-table-column>
@@ -73,7 +74,12 @@
           <el-input :model-value="scriptTopic?.title || ''" disabled />
         </el-form-item>
         <el-form-item label="脚本标题">
-          <el-input v-model="scriptForm.title" maxlength="60" show-word-limit placeholder="给这条脚本起个标题，AI 会围绕它写" />
+          <el-input
+            v-model="scriptForm.title"
+            maxlength="60"
+            show-word-limit
+            placeholder="给这条脚本起个标题，AI 会围绕它写"
+          />
         </el-form-item>
         <el-form-item label="补充角度">
           <el-input v-model="scriptForm.angle" placeholder="选填：想强调的角度、观点或人群" />
@@ -100,7 +106,9 @@
       </div>
       <template #footer>
         <el-button @click="scriptVisible = false">取消</el-button>
-        <el-button :loading="generating" @click="generate">{{ scriptContent.trim() ? 'AI 润色' : 'AI 生成' }}</el-button>
+        <el-button :loading="generating" @click="generate">{{
+          scriptContent.trim() ? 'AI 润色' : 'AI 生成'
+        }}</el-button>
         <el-button type="primary" :disabled="!scriptContent.trim()" @click="saveScript">保存并生成画布</el-button>
       </template>
     </el-dialog>
@@ -164,7 +172,9 @@ async function setStatus(row, status) {
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(`从选题池删除「${row.title}」？关联的脚本和画布不会被删除。`, '删除选题', { type: 'warning' })
+  await ElMessageBox.confirm(`从选题池删除「${row.title}」？关联的脚本和画布不会被删除。`, '删除选题', {
+    type: 'warning',
+  })
   await api.delete(`/topics/${row.id}`)
   await load()
 }
@@ -242,12 +252,38 @@ onMounted(load)
 </script>
 
 <style scoped>
-.toolbar { display: flex; align-items: baseline; gap: 12px; }
-.filters { margin: 14px 0; }
-.muted { color: var(--el-text-color-placeholder); font-size: 12px; }
-.topic-title { display: flex; align-items: center; gap: 8px; }
-.link { color: var(--el-color-primary); text-decoration: none; cursor: pointer; }
-.dialog-hint { font-size: 12px; color: var(--el-text-color-placeholder); margin-top: 8px; line-height: 1.5; }
-.peak { font-weight: 600; }
-.p-tag { margin-right: 4px; }
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.filters {
+  margin: 14px 0;
+}
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+.topic-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+.dialog-hint {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+.peak {
+  font-weight: 600;
+}
+.p-tag {
+  margin-right: 4px;
+}
 </style>

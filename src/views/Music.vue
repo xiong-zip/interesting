@@ -20,14 +20,25 @@
     <div v-if="bgm.path" class="bgm-bar">
       当前 BGM：<strong>{{ bgm.filename }}</strong>
       <span v-if="bgm.lyric_path" class="lyric-badge">🎤 含歌词</span>
-      <el-switch v-if="bgm.lyric_path" v-model="useLyric" active-text="歌词作为字幕轨" style="margin-left: 16px" @change="toggleUseLyric" />
+      <el-switch
+        v-if="bgm.lyric_path"
+        v-model="useLyric"
+        active-text="歌词作为字幕轨"
+        style="margin-left: 16px"
+        @change="toggleUseLyric"
+      />
     </div>
 
     <el-empty v-if="!items.length" description="还没有音乐素材。把音频文件放入音乐目录后点击「扫描音乐目录」" />
     <el-table v-else :data="filtered" style="margin-top: 16px" :row-class-name="rowClass">
       <el-table-column label="收藏" width="60" align="center">
         <template #default="{ row }">
-          <span class="fav-btn" :class="{ on: row.favorite }" :title="row.favorite ? '取消收藏' : '收藏'" @click.stop="toggleFav(row)">
+          <span
+            class="fav-btn"
+            :class="{ on: row.favorite }"
+            :title="row.favorite ? '取消收藏' : '收藏'"
+            @click.stop="toggleFav(row)"
+          >
             {{ row.favorite ? '★' : '☆' }}
           </span>
         </template>
@@ -76,7 +87,9 @@
       <el-table-column prop="created_at" label="加入时间" width="160" />
       <el-table-column label="操作" width="120">
         <template #default="{ row }">
-          <el-button v-if="row.ext !== 'mp3'" size="small" :loading="row._converting" @click.stop="convertOne(row)">转 MP3</el-button>
+          <el-button v-if="row.ext !== 'mp3'" size="small" :loading="row._converting" @click.stop="convertOne(row)"
+            >转 MP3</el-button
+          >
           <el-tag v-if="isBgm(row)" size="small" type="success">BGM</el-tag>
         </template>
       </el-table-column>
@@ -113,7 +126,9 @@
       </div>
       <div class="player-ctrl">
         <button class="pbtn" title="上一首" @click="prev">⏮</button>
-        <button class="pbtn main" :title="playing ? '暂停' : '播放'" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</button>
+        <button class="pbtn main" :title="playing ? '暂停' : '播放'" @click="togglePlay">
+          {{ playing ? '⏸' : '▶' }}
+        </button>
         <button class="pbtn" title="下一首" @click="next">⏭</button>
       </div>
       <audio
@@ -177,7 +192,11 @@ const filtered = computed(() => {
     if (activeTag.value && !rowTags(row).includes(activeTag.value)) return false
     if (!kw) return true
     const tags = rowTags(row).join(' ').toLowerCase()
-    return String(row.filename || '').toLowerCase().includes(kw) || tags.includes(kw)
+    return (
+      String(row.filename || '')
+        .toLowerCase()
+        .includes(kw) || tags.includes(kw)
+    )
   })
 })
 
@@ -221,23 +240,44 @@ async function playMusic(row) {
   const a = audioRef.value
   if (!a) return
   if (same) {
-    if (a.paused) { a.play().then(() => (playing.value = true)).catch(() => {}) }
-    else { a.pause(); playing.value = false }
+    if (a.paused) {
+      a.play()
+        .then(() => (playing.value = true))
+        .catch(() => {})
+    } else {
+      a.pause()
+      playing.value = false
+    }
   } else {
     curTime.value = 0
-    try { await a.play(); playing.value = true } catch { playing.value = false }
+    try {
+      await a.play()
+      playing.value = true
+    } catch {
+      playing.value = false
+    }
   }
 }
 
 function togglePlay() {
   const a = audioRef.value
   if (!a) return
-  if (a.paused) { a.play().then(() => (playing.value = true)).catch(() => {}) }
-  else { a.pause(); playing.value = false }
+  if (a.paused) {
+    a.play()
+      .then(() => (playing.value = true))
+      .catch(() => {})
+  } else {
+    a.pause()
+    playing.value = false
+  }
 }
 
-function onTime(e) { curTime.value = e.target.currentTime }
-function onMeta(e) { duration.value = e.target.duration || 0 }
+function onTime(e) {
+  curTime.value = e.target.currentTime
+}
+function onMeta(e) {
+  duration.value = e.target.duration || 0
+}
 
 function seek(e) {
   const a = audioRef.value
@@ -285,7 +325,9 @@ async function scan() {
   scanning.value = true
   try {
     const { data } = await api.post('/music/scan')
-    ElMessage.success(`扫描完成，新增 ${data.added} 个，共 ${data.total} 个；识别封面 ${data.withCover || 0} 个、歌词 ${data.withLyric || 0} 个`)
+    ElMessage.success(
+      `扫描完成，新增 ${data.added} 个，共 ${data.total} 个；识别封面 ${data.withCover || 0} 个、歌词 ${data.withLyric || 0} 个`,
+    )
     if (data.ncmDecoded > 0) {
       ElMessage.success(`已解码 ${data.ncmDecoded} 个网易云 .ncm 文件`)
     }
@@ -324,7 +366,9 @@ async function convertAll() {
   converting.value = true
   try {
     const { data } = await api.post('/music/convert-all')
-    ElMessage.success(`转换完成：成功 ${data.converted} 个${data.failed?.length ? `，失败 ${data.failed.length} 个` : ''}`)
+    ElMessage.success(
+      `转换完成：成功 ${data.converted} 个${data.failed?.length ? `，失败 ${data.failed.length} 个` : ''}`,
+    )
     if (data.failed?.length) console.warn('转换失败', data.failed)
     await load()
   } finally {
@@ -336,14 +380,41 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page { padding-bottom: 96px; }
-.toolbar { display: flex; justify-content: space-between; align-items: center; }
-.actions { display: flex; align-items: center; gap: 12px; }
-.filters { display: flex; align-items: center; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
-.fav-btn { cursor: pointer; font-size: 18px; color: var(--el-text-color-placeholder); line-height: 1; }
-.fav-btn:hover { color: var(--el-color-warning); }
-.fav-btn.on { color: var(--el-color-warning); }
-.tag-select { width: 100%; }
+.page {
+  padding-bottom: 96px;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.fav-btn {
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--el-text-color-placeholder);
+  line-height: 1;
+}
+.fav-btn:hover {
+  color: var(--el-color-warning);
+}
+.fav-btn.on {
+  color: var(--el-color-warning);
+}
+.tag-select {
+  width: 100%;
+}
 /* 平时像"加标签"提示，hover/聚焦才显出边框，减少表格噪音 */
 .tag-select :deep(.el-select__wrapper) {
   min-height: 26px;
@@ -355,9 +426,26 @@ onMounted(load)
   background: var(--el-fill-color-blank);
   box-shadow: 0 0 0 1px var(--el-border-color) inset;
 }
-.muted { color: var(--el-text-color-placeholder); font-size: 12px; }
-.bgm-bar { margin-top: 12px; font-size: 13px; color: var(--el-text-color-secondary); display: flex; align-items: center; flex-wrap: wrap; }
-.lyric-badge { margin-left: 12px; padding: 1px 8px; border-radius: 10px; background: var(--el-color-success-light-9); color: var(--el-color-success); font-size: 12px; }
+.muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+.bgm-bar {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.lyric-badge {
+  margin-left: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+  font-size: 12px;
+}
 .cover-box {
   width: 44px;
   height: 44px;
@@ -369,7 +457,12 @@ onMounted(load)
   justify-content: center;
   font-size: 18px;
 }
-.cover-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .name-link {
   cursor: pointer;
   color: var(--el-color-primary);
@@ -382,9 +475,16 @@ onMounted(load)
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.name-link:hover { text-decoration: underline; }
-.playing-ico { color: var(--el-color-success); font-size: 12px; }
-:deep(.row-playing td) { background-color: var(--el-color-primary-light-9) !important; }
+.name-link:hover {
+  text-decoration: underline;
+}
+.playing-ico {
+  color: var(--el-color-success);
+  font-size: 12px;
+}
+:deep(.row-playing td) {
+  background-color: var(--el-color-primary-light-9) !important;
+}
 
 /* 底部播放器 */
 .player-bar {
@@ -413,8 +513,16 @@ onMounted(load)
   justify-content: center;
   font-size: 24px;
 }
-.player-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.player-info { flex: 1; min-width: 0; }
+.player-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.player-info {
+  flex: 1;
+  min-width: 0;
+}
 .player-title {
   font-size: 13px;
   font-weight: 600;
@@ -442,8 +550,18 @@ onMounted(load)
   border-radius: 3px;
   transition: width 0.1s linear;
 }
-.time { font-size: 12px; color: var(--el-text-color-secondary); font-variant-numeric: tabular-nums; min-width: 40px; text-align: center; }
-.player-ctrl { display: flex; align-items: center; gap: 6px; }
+.time {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: center;
+}
+.player-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .pbtn {
   width: 36px;
   height: 36px;
@@ -457,7 +575,17 @@ onMounted(load)
   align-items: center;
   justify-content: center;
 }
-.pbtn:hover { background: var(--el-fill-color-light); }
-.pbtn.main { width: 44px; height: 44px; background: var(--el-color-primary); color: #fff; font-size: 18px; }
-.pbtn.main:hover { background: var(--el-color-primary-light-3); }
+.pbtn:hover {
+  background: var(--el-fill-color-light);
+}
+.pbtn.main {
+  width: 44px;
+  height: 44px;
+  background: var(--el-color-primary);
+  color: #fff;
+  font-size: 18px;
+}
+.pbtn.main:hover {
+  background: var(--el-color-primary-light-3);
+}
 </style>

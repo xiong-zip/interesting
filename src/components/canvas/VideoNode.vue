@@ -59,12 +59,34 @@ const metaText = computed(() => {
 </script>
 
 <style scoped>
-.node { width: 240px; background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-.node.compact .preview { height: 96px; }
-.head { font-size: 11px; color: #fff; background: #67c23a; padding: 4px 10px; }
-.preview { width: 100%; height: 72px; object-fit: cover; background: #000; display: block; }
+.node {
+  width: 240px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.node.compact .preview {
+  height: 96px;
+}
+.head {
+  font-size: 11px;
+  color: #fff;
+  background: #67c23a;
+  padding: 4px 10px;
+}
+.preview {
+  width: 100%;
+  height: 72px;
+  object-fit: cover;
+  background: #000;
+  display: block;
+}
 /* 点击播放的提示：悬停时高亮 */
-.thumb-wrap { position: relative; }
+.thumb-wrap {
+  position: relative;
+}
 .play-badge {
   position: absolute;
   left: 50%;
@@ -82,10 +104,25 @@ const metaText = computed(() => {
   padding-left: 2px;
   opacity: 0.75;
   cursor: pointer;
-  transition: opacity 0.15s, background 0.15s, transform 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    transform 0.15s;
 }
-.node:hover .play-badge { opacity: 1; background: rgba(64, 158, 255, 0.85); transform: translate(-50%, -50%) scale(1.1); }
-.title { font-size: 12px; font-weight: 600; padding: 6px 10px 2px; word-break: break-all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node:hover .play-badge {
+  opacity: 1;
+  background: rgba(64, 158, 255, 0.85);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px 2px;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .block {
   margin: 4px 8px 0;
   padding: 3px 6px;
@@ -96,8 +133,14 @@ const metaText = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.plot { background: rgba(64, 158, 255, 0.08); color: #3a6ea5; }
-.subs { background: rgba(245, 108, 108, 0.08); color: #a15c5c; }
+.plot {
+  background: rgba(64, 158, 255, 0.08);
+  color: #3a6ea5;
+}
+.subs {
+  background: rgba(245, 108, 108, 0.08);
+  color: #a15c5c;
+}
 .music {
   background: rgba(230, 162, 60, 0.1);
   color: #9a6a1c;
@@ -106,8 +149,24 @@ const metaText = computed(() => {
   gap: 4px;
   align-items: center;
 }
-.music .music-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music .vol { font-size: 10px; color: #b08a4d; }
-.meta { font-size: 11px; color: #e6a23c; padding: 4px 10px 8px; word-break: break-all; }
-.hint { font-size: 11px; color: var(--el-text-color-placeholder); padding: 2px 10px 8px; }
+.music .music-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.music .vol {
+  font-size: 10px;
+  color: #b08a4d;
+}
+.meta {
+  font-size: 11px;
+  color: #e6a23c;
+  padding: 4px 10px 8px;
+  word-break: break-all;
+}
+.hint {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  padding: 2px 10px 8px;
+}
 </style>
