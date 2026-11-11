@@ -7,3 +7,5 @@ node_modules/
 *.log
 .tmp-edge-profile*/
 .trae-html-share-packages/
+__pycache__/
+*.pyc

@@ -53,10 +53,13 @@
       </el-table-column>
       <el-table-column label="文件名" min-width="260">
         <template #default="{ row }">
-          <span class="name-link" :title="row.filename" @click="playMusic(row)">
-            <span v-if="currentSong?.id === row.id && playing" class="playing-ico">▶</span>
-            {{ row.filename }}
-          </span>
+          <div class="name-cell">
+            <span class="name-link" :title="row.filename" @click="playMusic(row)">
+              <span v-if="currentSong?.id === row.id && playing" class="playing-ico">▶</span>
+              {{ row.filename }}
+            </span>
+            <el-tag v-if="isBgm(row)" size="small" type="success">BGM</el-tag>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="标签" min-width="190">
@@ -78,21 +81,25 @@
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="格式" width="70">
-        <template #default="{ row }">{{ (row.ext || '').toUpperCase() }}</template>
+      <el-table-column label="格式" width="84">
+        <template #default="{ row }">
+          <div class="fmt-cell">
+            <span>{{ (row.ext || '').toUpperCase() }}</span>
+            <el-button
+              v-if="row.ext !== 'mp3'"
+              link
+              type="primary"
+              :loading="row._converting"
+              @click.stop="convertOne(row)"
+              >转 MP3</el-button
+            >
+          </div>
+        </template>
       </el-table-column>
       <el-table-column label="大小" width="90">
         <template #default="{ row }">{{ formatSize(row.size) }}</template>
       </el-table-column>
       <el-table-column prop="created_at" label="加入时间" width="160" />
-      <el-table-column label="操作" width="120">
-        <template #default="{ row }">
-          <el-button v-if="row.ext !== 'mp3'" size="small" :loading="row._converting" @click.stop="convertOne(row)"
-            >转 MP3</el-button
-          >
-          <el-tag v-if="isBgm(row)" size="small" type="success">BGM</el-tag>
-        </template>
-      </el-table-column>
     </el-table>
 
     <!-- 歌词播放：标题 + 滚动歌词 + 波形进度条（含高潮点） -->
@@ -462,6 +469,18 @@ onMounted(load)
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.fmt-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 .name-link {
   cursor: pointer;

@@ -68,12 +68,12 @@
           <div class="muted">赞 {{ fmt(row.likes) }} · 评 {{ fmt(row.comments) }} · 藏 {{ fmt(row.favorites) }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260">
+      <el-table-column label="操作" width="230">
         <template #default="{ row }">
-          <el-button size="small" type="primary" plain @click="openStats(row)">数据</el-button>
-          <el-button size="small" @click="copyCaption(row)">复制文案</el-button>
-          <el-button size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
+          <el-button link type="primary" @click="openStats(row)">数据</el-button>
+          <el-button link @click="copyCaption(row)">复制文案</el-button>
+          <el-button link @click="openEdit(row)">编辑</el-button>
+          <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

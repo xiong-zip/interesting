@@ -5,6 +5,7 @@ const fs = require('fs')
 const { spawnSync } = require('child_process')
 const db = require('../db')
 const { buildPlan } = require('./build-plan')
+const { describeFailure } = require('./style-error')
 
 function exportDraft(projectId, options = {}) {
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId)
@@ -37,7 +38,7 @@ function exportDraft(projectId, options = {}) {
     const python = process.env.PYTHON || 'python'
     const r = spawnSync(python, [path.join(__dirname, 'generate_draft.py'), planFile], { encoding: 'utf8' })
     if (r.error) throw new Error(`无法执行 ${python}: ${r.error.message}（请确认已安装 Python 和 pyJianYingDraft）`)
-    if (r.status !== 0) throw new Error(`生成剪映草稿失败: ${(r.stderr || r.stdout || '').trim()}`)
+    if (r.status !== 0) throw new Error(describeFailure(r))
     const lines = String(r.stdout || '')
       .trim()
       .split(/\r?\n/)

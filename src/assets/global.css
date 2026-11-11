@@ -1,3 +1,60 @@
+/* ============================================================
+   设计令牌：全站统一在此调整，页面里尽量只引用变量
+   ============================================================ */
+:root {
+  /* 品牌蓝：沿用 Element 主色基调，只区分深浅层次 */
+  --brand-500: #409eff;
+  --brand-600: #2f86f6;
+  --brand-700: #1f6fe5;
+  --brand-050: #eef6ff;
+  --brand-100: #dcebff;
+
+  /* 中性色：偏冷的石板灰，比默认纯灰更干净 */
+  --ink-900: #1c2434;
+  --ink-700: #344054;
+  --ink-500: #667085;
+  --ink-400: #98a2b3;
+  --line: #e6ebf3;
+  --line-soft: #eef2f8;
+  --surface: #ffffff;
+  --app-bg: #f4f6fb;
+
+  /* 圆角 */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+
+  /* 阴影：一层贴边 + 一层扩散，避免"灰块"感 */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 8px 24px -12px rgba(16, 24, 40, 0.18), 0 2px 6px -2px rgba(16, 24, 40, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(64, 158, 255, 0.16);
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================================
+   Element Plus 变量校准
+   ============================================================ */
+:root {
+  --el-text-color-primary: var(--ink-900);
+  --el-text-color-regular: var(--ink-700);
+  --el-text-color-secondary: var(--ink-500);
+  --el-text-color-placeholder: var(--ink-400);
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line-soft);
+  --el-border-color-lighter: var(--line-soft);
+  --el-bg-color-page: var(--app-bg);
+  --el-border-radius-base: var(--r-sm);
+  --el-border-radius-small: 6px;
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-box-shadow: var(--shadow-md);
+}
+
+/* ============================================================
+   基础
+   ============================================================ */
 html,
 body,
 #app {
@@ -7,18 +64,267 @@ body,
 }
 
 body {
-  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
-  background: var(--el-bg-color-page);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    sans-serif;
+  font-size: 14px;
+  color: var(--ink-900);
+  background: radial-gradient(1100px 520px at 14% -8%, #e9f2ff 0%, rgba(233, 242, 255, 0) 62%), var(--app-bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
 
+::selection {
+  background: var(--brand-100);
+  color: var(--brand-700);
+}
+
+/* 细滚动条，避免默认滚动条把卡片边缘挤歪 */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d3dbe8;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #b9c5d8;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============================================================
+   页面骨架与通用块
+   ============================================================ */
+/* 不设 max-width / 居中：后台管理这类窄页有内联宽度，居中会被推到屏幕中间 */
 .page {
-  padding: 20px;
+  padding: 24px 28px 32px;
 }
 
+.page h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* 各页顶部的「标题 + 操作」行，没写 margin 的页面由这里兜底 */
+.page > .toolbar {
+  margin-bottom: 18px;
+}
+
+/* 卡片最小宽度留到 300：素材卡片底部有三个按钮，260 会挤成两行 */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.muted {
+  color: var(--ink-400);
+  font-size: 12px;
+}
+
+/* ============================================================
+   卡片
+   ============================================================ */
+.el-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  transition:
+    box-shadow 0.2s var(--ease),
+    border-color 0.2s var(--ease);
+}
+.el-card.is-hover-shadow:hover {
+  box-shadow: var(--shadow-md);
+}
+.el-card__header {
+  padding: 14px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-900);
+  border-bottom: 1px solid var(--line-soft);
+  background: linear-gradient(180deg, #fbfcff 0%, #ffffff 100%);
+}
+.el-card__body {
+  padding: 16px 18px;
+}
+
+/* 统计数字：等宽数字，避免数值变化时左右抖 */
+.el-statistic__head {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.el-statistic__content {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   按钮 / 输入
+   ============================================================ */
+.el-button {
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.18s var(--ease),
+    border-color 0.18s var(--ease),
+    box-shadow 0.18s var(--ease),
+    color 0.18s var(--ease);
+}
+.el-button--small {
+  border-radius: 6px;
+}
+/* 只有实心主按钮带投影；文本按钮（link）加了会变成一圈蓝晕 */
+.el-button--primary:not(.is-link) {
+  box-shadow: 0 1px 2px rgba(64, 158, 255, 0.3);
+}
+.el-button--primary:not(.is-link):hover {
+  box-shadow: 0 6px 16px -8px rgba(64, 158, 255, 0.75);
+}
+/* 表格里的文本按钮跟正文字号对齐，避免比单元格内容更抢眼 */
+.el-table .el-button.is-link {
+  font-size: 13px;
+}
+.el-button-group .el-button:first-child {
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+.el-button-group .el-button:last-child {
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner,
+.el-input-number,
+.el-date-editor {
+  border-radius: var(--r-sm);
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow:
+    0 0 0 1px var(--el-color-primary) inset,
+    var(--shadow-focus);
+}
+
+/* 单选按钮组：给首尾补圆角，避免一排方角拼在一起 */
+.el-radio-button:first-child .el-radio-button__inner {
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+.el-radio-button:last-child .el-radio-button__inner {
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+
+/* ============================================================
+   表格
+   ============================================================ */
+.el-table {
+  --el-table-header-bg-color: #f7f9fd;
+  --el-table-header-text-color: var(--ink-500);
+  --el-table-row-hover-bg-color: #f4f9ff;
+  --el-table-border-color: var(--line-soft);
+  font-size: 13px;
+}
+.el-table th.el-table__cell {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.el-table td.el-table__cell {
+  padding: 10px 0;
+}
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: #fafbfe;
+}
+/* 去掉表格底部那条与容器打架的横线 */
+.el-table__inner-wrapper::before {
+  display: none;
+}
+
+/* ============================================================
+   弹窗 / 标签 / 空状态 / 其它
+   ============================================================ */
+.el-dialog {
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  box-shadow: 0 24px 60px -24px rgba(16, 24, 40, 0.4);
+}
+.el-dialog__header {
+  margin: 0;
+  padding: 18px 22px 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line-soft);
+}
+.el-dialog__body {
+  padding: 18px 22px;
+}
+.el-dialog__footer {
+  padding: 12px 22px 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.el-tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line-soft);
+  font-weight: 600;
+}
+.el-drawer__body {
+  padding: 18px 22px;
+}
+
+.el-link.el-link--primary {
+  font-weight: 500;
+}
+
+.el-empty {
+  padding: 18px 0;
+}
+.el-empty__description p {
+  color: var(--ink-400);
+  font-size: 13px;
+}
+
+.el-message {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+}
+
+.el-pagination {
+  font-weight: 500;
+}
+
+.el-loading-mask {
+  border-radius: var(--r-lg);
+}
+
+.el-alert {
+  border-radius: var(--r-md);
+}
+
+.el-popper.is-light {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
 }
 
 /* Vue Flow 暗色适配 */

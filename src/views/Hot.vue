@@ -60,7 +60,7 @@
       <el-table-column label="综合" width="80" sortable>
         <template #default="{ row }">{{ row.score || '-' }}</template>
       </el-table-column>
-      <el-table-column label="热度" width="140" sortable>
+      <el-table-column label="热度" width="176" sortable>
         <template #default="{ row }">
           <div>{{ row.hot ? row.hot.toLocaleString() : '-' }}</div>
           <div v-if="row.firstSeen" class="muted">
@@ -68,12 +68,12 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="170">
         <template #default="{ row }">
-          <el-button size="small" :disabled="inPool(row)" @click="addTopic(row)">
+          <el-button link :disabled="inPool(row)" @click="addTopic(row)">
             {{ inPool(row) ? '已加入选题' : '加入选题' }}
           </el-button>
-          <el-button size="small" type="primary" plain @click="generate(row)">生成脚本</el-button>
+          <el-button link type="primary" @click="generate(row)">生成脚本</el-button>
         </template>
       </el-table-column>
     </el-table>

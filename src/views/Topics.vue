@@ -26,8 +26,15 @@
       </el-table-column>
       <el-table-column label="平台" width="130">
         <template #default="{ row }">
-          <el-tag v-for="p in platformNames(row)" :key="p" size="small" class="p-tag">{{ p }}</el-tag>
-          <span v-if="!platformNames(row).length" class="muted">-</span>
+          <el-tag
+            v-for="p in platformTags(row.platforms || row.platform)"
+            :key="p.key"
+            :color="p.color"
+            size="small"
+            class="p-tag"
+            >{{ p.name }}</el-tag
+          >
+          <span v-if="!platformTags(row.platforms || row.platform).length" class="muted">-</span>
         </template>
       </el-table-column>
       <el-table-column label="热度" width="140">
@@ -120,6 +127,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import { platformTags } from '../utils/platforms'
 
 const router = useRouter()
 const items = ref([])
@@ -133,19 +141,12 @@ const statusMeta = [
   { value: 'published', label: '已发' },
   { value: 'dropped', label: '放弃' },
 ]
-const PLATFORM_NAMES = { weibo: '微博', zhihu: '知乎', douyin: '抖音', toutiao: '头条', bilibili: 'B站' }
 
 const filtered = computed(() =>
   statusFilter.value ? items.value.filter((i) => i.status === statusFilter.value) : items.value,
 )
 function countOf(status) {
   return items.value.filter((i) => i.status === status).length
-}
-function platformNames(row) {
-  return String(row.platforms || row.platform || '')
-    .split(',')
-    .filter(Boolean)
-    .map((k) => PLATFORM_NAMES[k] || k)
 }
 function fmtHot(n) {
   const v = Number(n) || 0
@@ -285,5 +286,7 @@ onMounted(load)
 }
 .p-tag {
   margin-right: 4px;
+  color: #fff;
+  border: none;
 }
 </style>

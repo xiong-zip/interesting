@@ -38,12 +38,12 @@
         </template>
       </el-table-column>
       <el-table-column prop="updated_at" label="更新时间" width="160" />
-      <el-table-column label="操作" width="320">
+      <el-table-column label="操作" width="290">
         <template #default="{ row }">
-          <el-button size="small" type="primary" plain @click="openCanvas(row)">打开画布</el-button>
-          <el-button size="small" @click="edit(row)">编辑</el-button>
-          <el-button size="small" plain @click="recordPublish(row)">记录发布</el-button>
-          <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
+          <el-button link type="primary" @click="openCanvas(row)">打开画布</el-button>
+          <el-button link @click="edit(row)">编辑</el-button>
+          <el-button link @click="recordPublish(row)">记录发布</el-button>
+          <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
