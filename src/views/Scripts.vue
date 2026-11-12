@@ -62,7 +62,18 @@
           <div class="form-hint">选题决定脚本主题；选中后标题为空会自动带入，之后仍可改</div>
         </el-form-item>
         <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
-        <el-form-item label="内容"><el-input v-model="form.content" type="textarea" :rows="14" /></el-form-item>
+        <el-form-item label="内容">
+          <div class="content-box">
+            <div class="mode-bar">
+              <el-radio-group v-model="formMode" size="small">
+                <el-radio-button value="edit">编辑</el-radio-button>
+                <el-radio-button value="preview" :disabled="!form.content">预览</el-radio-button>
+              </el-radio-group>
+            </div>
+            <MarkdownView v-if="formMode === 'preview'" :content="form.content" max-height="420px" />
+            <el-input v-else v-model="form.content" type="textarea" :rows="14" />
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer><el-button type="primary" @click="save">保存</el-button></template>
     </el-dialog>
@@ -74,6 +85,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
+import MarkdownView from '../components/MarkdownView.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -83,6 +95,7 @@ const topics = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const form = ref({ id: null, title: '', content: '', topicId: null })
+const formMode = ref('edit')
 
 const TOPIC_STATUS = { pending: '待评估', writing: '在写', done: '已写', published: '已发', dropped: '放弃' }
 // 从选题池点「N 个脚本」进来时只显示该选题下的脚本
@@ -116,10 +129,13 @@ async function loadTopics() {
 }
 function create() {
   form.value = { id: null, title: '', content: '', topicId: null }
+  formMode.value = 'edit'
   dialogVisible.value = true
 }
 function edit(row) {
   form.value = { id: row.id, title: row.title, content: row.content, topicId: row.topic_id || null }
+  // 打开已有脚本默认预览（更接近成稿的样子），要改再切编辑
+  formMode.value = row.content ? 'preview' : 'edit'
   dialogVisible.value = true
 }
 // 选题决定主题：标题还空着就自动带入选题名
@@ -194,6 +210,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.mode-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.content-box {
+  width: 100%;
+}
 .toolbar {
   display: flex;
   justify-content: space-between;

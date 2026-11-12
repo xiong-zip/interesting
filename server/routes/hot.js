@@ -308,3 +308,5 @@ router.post('/open', (req, res) => {
 })
 
 module.exports = router
+// 供 ai.js 的热点检索路由复用同一份热榜数据（require 缓存保证不会重复起定时任务）
+module.exports.snapshot = snapshot

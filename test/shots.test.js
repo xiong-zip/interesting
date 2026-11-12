@@ -33,6 +33,21 @@ describe('parseShots', () => {
     expect(result[0].content).toContain('开头')
   })
 
+  it('解析七列分镜表（时长/景别运镜/音效等新格式）', () => {
+    const content = [
+      '| 镜号 | 时长 | 景别与运镜 | 画面内容 | 口播 | 字幕 | 音效 |',
+      '|---|---|---|---|---|---|---|',
+      '| 1 | 5秒 | 特写，固定 | 窗玻璃上的水珠 | 冬天来了 | 窗上的水珠 | 呼吸声 |',
+      '| 2 | 6秒 | 中景，缓推 | 捧着热饮看窗外 | 早已留下痕迹 | 冬天在细节里 | 杯子碰撞声 |',
+    ].join('\n')
+    const result = parseShots(content)
+    expect(result).toHaveLength(2)
+    expect(result[0].title).toBe('镜1')
+    expect(result[0].content).toContain('时长：5秒')
+    expect(result[0].content).toContain('画面内容：窗玻璃上的水珠')
+    expect(result[0].content).toContain('音效：呼吸声')
+  })
+
   it('空内容返回空数组', () => {
     expect(parseShots('')).toEqual([])
     expect(parseShots('没有任何分镜结构的普通文字')).toEqual([])

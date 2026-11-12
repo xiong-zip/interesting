@@ -2,24 +2,54 @@
   <div class="page" style="max-width: 720px">
     <h2>⚙️ 后台管理</h2>
 
-    <el-card header="GLM AI 配置">
+    <el-card header="AI 服务配置">
       <el-form label-width="120px">
-        <el-form-item label="GLM API Key">
-          <el-input v-model="settings.glm_api_key" placeholder="open.bigmodel.cn 获取" show-password />
+        <el-form-item label="当前服务商">
+          <el-radio-group v-model="settings.ai_provider">
+            <el-radio-button value="glm">智谱 GLM</el-radio-button>
+            <el-radio-button value="deepseek">DeepSeek</el-radio-button>
+          </el-radio-group>
+          <div class="muted" style="margin-top: 4px">
+            脚本生成与热点检索都走这里选中的服务商；没配置 Key 时返回带水印的模拟内容
+          </div>
         </el-form-item>
-        <el-form-item label="模型">
-          <el-select v-model="settings.glm_model">
-            <el-option
-              v-for="m in ['glm-4-flash', 'glm-4-air', 'glm-4-plus', 'glm-4-0520']"
-              :key="m"
-              :label="m"
-              :value="m"
+        <template v-if="settings.ai_provider !== 'deepseek'">
+          <el-form-item label="GLM API Key">
+            <el-input v-model="settings.glm_api_key" placeholder="open.bigmodel.cn 获取" show-password />
+          </el-form-item>
+          <el-form-item label="GLM 模型">
+            <el-select v-model="settings.glm_model" filterable allow-create>
+              <el-option
+                v-for="m in ['glm-4-air', 'glm-4-plus', 'glm-4-flash', 'glm-4-0520']"
+                :key="m"
+                :label="m"
+                :value="m"
+              />
+            </el-select>
+            <div class="muted" style="margin-top: 4px">
+              推荐 glm-4-air（一条脚本不到一分钱）；免费档 glm-4-flash 偶发主题跑题与雪景幻觉
+            </div>
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="DeepSeek Key">
+            <el-input
+              v-model="settings.deepseek_api_key"
+              placeholder="platform.deepseek.com 获取，充值后按量计费"
+              show-password
             />
-          </el-select>
-        </el-form-item>
+          </el-form-item>
+          <el-form-item label="DeepSeek 模型">
+            <el-select v-model="settings.deepseek_model" filterable allow-create>
+              <el-option label="deepseek-flash（官方推荐）" value="deepseek-flash" />
+              <el-option label="deepseek-chat（通用对话）" value="deepseek-chat" />
+              <el-option label="deepseek-reasoner（推理强，速度慢）" value="deepseek-reasoner" />
+            </el-select>
+          </el-form-item>
+        </template>
         <el-form-item>
           <el-button type="primary" @click="saveSettings">保存配置</el-button>
-          <el-button @click="testGlm" :loading="testing">测试连接</el-button>
+          <el-button @click="testAI" :loading="testing">测试当前服务商连接</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -98,8 +128,11 @@ import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const settings = ref({
+  ai_provider: 'glm',
   glm_api_key: '',
-  glm_model: 'glm-4-flash',
+  glm_model: 'glm-4-air',
+  deepseek_api_key: '',
+  deepseek_model: 'deepseek-flash',
   media_dir: 'media',
   asset_dir: 'assets',
   music_dir: 'music',
@@ -139,11 +172,15 @@ async function saveSettings() {
   ElMessage.success('已保存')
   load()
 }
-async function testGlm() {
+async function testAI() {
   testing.value = true
   try {
+    // 先保存再测，避免测的是旧配置
+    await api.post('/settings', settings.value)
     const { data } = await api.post('/ai/test')
-    data.ok ? ElMessage.success(`连接成功：${data.content}`) : ElMessage.error(data.error)
+    if (data.ok) ElMessage.success(`${data.provider} ${data.model} 连接成功：${data.content}`)
+    else ElMessage.error(data.error)
+    await load()
   } finally {
     testing.value = false
   }

@@ -100,14 +100,23 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <el-input
-        v-model="scriptContent"
-        type="textarea"
-        :rows="16"
-        resize="none"
-        v-loading="generating"
-        placeholder="可以直接手写，也可以点下方「AI 生成」"
-      />
+      <div v-loading="generating" class="script-box">
+        <div class="mode-bar">
+          <el-radio-group v-model="scriptMode" size="small">
+            <el-radio-button value="edit">编辑</el-radio-button>
+            <el-radio-button value="preview">预览</el-radio-button>
+          </el-radio-group>
+        </div>
+        <MarkdownView v-if="scriptMode === 'preview' && scriptContent" :content="scriptContent" max-height="420px" />
+        <el-input
+          v-else
+          v-model="scriptContent"
+          type="textarea"
+          :rows="16"
+          resize="none"
+          placeholder="可以直接手写，也可以点下方「AI 生成」"
+        />
+      </div>
       <div class="dialog-hint">
         AI 生成后可以直接在这里改；确认无误再点「保存并生成画布」，脚本会挂在当前选题下，分镜自动铺到画布。
       </div>
@@ -127,6 +136,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import MarkdownView from '../components/MarkdownView.vue'
 import { platformTags } from '../utils/platforms'
 
 const router = useRouter()
@@ -193,6 +203,7 @@ async function openExternal(row) {
 const scriptVisible = ref(false)
 const scriptTopic = ref(null)
 const scriptContent = ref('')
+const scriptMode = ref('edit')
 const generating = ref(false)
 const scriptForm = ref({ title: '', angle: '', style: '口语化、有网感', duration: '60秒' })
 const styles = ['口语化、有网感', '专业干货', '幽默搞笑', '情感共鸣', '悬念反转']
@@ -201,6 +212,7 @@ const durations = ['30秒', '60秒', '3分钟', '5分钟']
 function writeTopic(row) {
   scriptTopic.value = row
   scriptContent.value = ''
+  scriptMode.value = 'edit'
   // 标题默认带出选题名，可改成更具体的说法；AI 优先围绕这个标题写
   scriptForm.value = { title: row.title || '', angle: '', style: '口语化、有网感', duration: '60秒' }
   scriptVisible.value = true
@@ -219,6 +231,8 @@ async function generate() {
       draft: scriptContent.value.trim() || undefined,
     })
     scriptContent.value = data.content || ''
+    // 生成/润色完成切到预览看排版；要改再切回编辑
+    scriptMode.value = 'preview'
     if (data.degraded) ElMessage.warning('未配置 GLM Key，已返回模拟内容')
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '生成失败')
@@ -274,6 +288,11 @@ onMounted(load)
   color: var(--el-color-primary);
   text-decoration: none;
   cursor: pointer;
+}
+.mode-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 .dialog-hint {
   font-size: 12px;

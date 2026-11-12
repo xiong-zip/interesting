@@ -37,7 +37,9 @@ app.get('/api/settings', (req, res) => {
   const rows = db.prepare('SELECT key, value FROM settings').all()
   const settings = Object.fromEntries(rows.map((r) => [r.key, r.value]))
   // key 脱敏
-  if (settings.glm_api_key) settings.glm_api_key = settings.glm_api_key.slice(0, 6) + '****'
+  for (const k of ['glm_api_key', 'deepseek_api_key']) {
+    if (settings[k]) settings[k] = settings[k].slice(0, 6) + '****'
+  }
   res.json(settings)
 })
 app.post('/api/settings', (req, res) => {

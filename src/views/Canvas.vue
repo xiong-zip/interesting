@@ -335,13 +335,22 @@
 
     <!-- AI 生成 -->
     <el-dialog v-model="aiVisible" title="根据画布生成脚本" width="720px" top="5vh">
-      <el-input
-        v-model="aiResult"
-        type="textarea"
-        :rows="14"
-        v-loading="aiGenerating"
-        placeholder="将把画布上的剧情节点内容作为剧情笔记，点击开始生成（素材、音乐、字幕不参与脚本）"
-      />
+      <div v-loading="aiGenerating">
+        <div class="mode-bar">
+          <el-radio-group v-model="aiMode" size="small">
+            <el-radio-button value="preview">预览</el-radio-button>
+            <el-radio-button value="edit">编辑</el-radio-button>
+          </el-radio-group>
+        </div>
+        <MarkdownView v-if="aiMode === 'preview' && aiResult" :content="aiResult" max-height="380px" />
+        <el-input
+          v-else
+          v-model="aiResult"
+          type="textarea"
+          :rows="14"
+          placeholder="将把画布上的剧情节点内容作为剧情笔记，点击开始生成（素材、音乐、字幕不参与脚本）"
+        />
+      </div>
       <template #footer>
         <el-button type="primary" :loading="aiGenerating" @click="doAiGenerate">开始生成</el-button>
         <el-button :disabled="!aiResult" @click="saveAiScript">保存为脚本</el-button>
@@ -567,6 +576,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { mediaUrl, thumbUrl } from '../api'
 import { subtitleFontCss } from '../utils/subtitleFont'
 import PlotNode from '../components/canvas/PlotNode.vue'
+import MarkdownView from '../components/MarkdownView.vue'
 import RoleNode from '../components/canvas/RoleNode.vue'
 import VideoNode from '../components/canvas/VideoNode.vue'
 import SceneNode from '../components/canvas/SceneNode.vue'
@@ -1950,6 +1960,7 @@ function deleteNode() {
 const aiVisible = ref(false)
 const aiGenerating = ref(false)
 const aiResult = ref('')
+const aiMode = ref('edit')
 // 剧本素材：独立剧情节点 + 镜头节点里写的剧情，都算剧情笔记
 // 剧本素材只取独立剧情节点（镜头节点不再承载剧情文字）
 function plotNotes() {
@@ -1963,6 +1974,7 @@ async function aiFromCanvas() {
   }
   await save(true)
   aiResult.value = ''
+  aiMode.value = 'edit'
   aiVisible.value = true
 }
 async function doAiGenerate() {
@@ -1976,6 +1988,7 @@ async function doAiGenerate() {
   try {
     const { data } = await api.post('/ai/script', { notes: notes.join('\n'), topic: currentProjectName() })
     aiResult.value = data.content
+    aiMode.value = 'preview'
     if (data.degraded) ElMessage.warning('未配置 GLM Key，已返回模拟内容')
   } finally {
     aiGenerating.value = false
@@ -2091,6 +2104,11 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+.mode-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 .canvas-body {
   flex: 1;

@@ -2,6 +2,16 @@
   <div class="page">
     <div class="toolbar">
       <h2>🔥 热点中心</h2>
+      <div class="match-bar">
+        <el-input
+          v-model="matchQuery"
+          placeholder="AI 检索：比如「一个人在厦门、只有手机，能拍哪些热点」"
+          style="width: 380px"
+          clearable
+          @keyup.enter="doMatch"
+        />
+        <el-button type="primary" :loading="matching" @click="doMatch">AI 检索</el-button>
+      </div>
       <div>
         <el-alert
           v-if="degraded"
@@ -98,11 +108,74 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <el-input v-model="genResult" type="textarea" :rows="14" v-loading="generating" placeholder="点击「开始生成」" />
+      <div v-loading="generating" class="result-box">
+        <div class="mode-bar">
+          <el-radio-group v-model="genMode" size="small">
+            <el-radio-button value="preview">预览</el-radio-button>
+            <el-radio-button value="edit">编辑</el-radio-button>
+          </el-radio-group>
+        </div>
+        <MarkdownView v-if="genMode === 'preview' && genResult" :content="genResult" max-height="380px" />
+        <el-input v-else v-model="genResult" type="textarea" :rows="14" placeholder="点击「开始生成」" />
+      </div>
       <template #footer>
         <el-button :loading="generating" type="primary" @click="doGenerate">开始生成</el-button>
         <el-button :disabled="!genResult" @click="saveScript">保存为脚本</el-button>
       </template>
+    </el-dialog>
+
+    <!-- AI 检索结果对话框 -->
+    <el-dialog v-model="matchVisible" title="AI 检索结果" width="760px" top="5vh">
+      <el-alert
+        v-if="matchResult.degraded"
+        type="warning"
+        :closable="false"
+        title="未配置 GLM Key，以下为模拟匹配结果"
+        style="margin-bottom: 10px"
+      />
+      <el-alert
+        v-else-if="matchResult.hotDegraded"
+        type="warning"
+        :closable="false"
+        title="热榜接口当前为模拟数据，匹配结果不代表真实热点"
+        style="margin-bottom: 10px"
+      />
+      <div v-if="matchResult.note" class="muted" style="margin-bottom: 10px">{{ matchResult.note }}</div>
+      <div v-if="matchResult.droppedCount" class="muted" style="margin-bottom: 10px">
+        已忽略 {{ matchResult.droppedCount }} 条不在当前热榜里的结果
+      </div>
+      <div v-if="matchResult.matches.length" class="match-list">
+        <div v-for="m in matchResult.matches" :key="m.hot.key" class="match-card">
+          <div class="match-head">
+            <a v-if="m.hot.url" class="title-link" @click.prevent="openExternal(m.hot)">{{ m.hot.title }}</a>
+            <span v-else>{{ m.hot.title }}</span>
+            <el-tag size="small" :type="feasibilityType(m.feasibility)">可行性·{{ m.feasibility }}</el-tag>
+            <el-tag
+              v-for="p in m.hot.platforms || []"
+              :key="p.key"
+              size="small"
+              :color="p.color"
+              style="color: #fff; border: none"
+              >{{ p.name }}</el-tag
+            >
+          </div>
+          <div v-if="m.reason" class="match-line"><span class="muted">理由：</span>{{ m.reason }}</div>
+          <div v-if="m.angle" class="match-line"><span class="muted">角度：</span>{{ m.angle }}</div>
+          <div v-if="m.shots.length" class="match-line">
+            <span class="muted">分镜概要：</span>
+            <ol class="match-shots">
+              <li v-for="(s, i) in m.shots" :key="i">{{ s }}</li>
+            </ol>
+          </div>
+          <div class="match-actions">
+            <el-button link :disabled="inPool(m.hot)" @click="addTopic(m.hot)">
+              {{ inPool(m.hot) ? '已加入选题' : '加入选题' }}
+            </el-button>
+            <el-button link type="primary" @click="generateFromMatch(m)">生成完整脚本</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else-if="!matching" description="没有找到符合条件的热点，换个说法或刷新热榜再试" />
     </el-dialog>
   </div>
 </template>
@@ -111,6 +184,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
+import MarkdownView from '../components/MarkdownView.vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -221,11 +295,13 @@ async function openExternal(row) {
 const dialogVisible = ref(false)
 const generating = ref(false)
 const genResult = ref('')
+const genMode = ref('edit')
 const genForm = ref({ hotTitle: '', topic: '', style: '口语化、有网感', duration: '60秒' })
 
 function generate(row) {
   genForm.value = { hotTitle: row.title, topic: '', style: '口语化、有网感', duration: '60秒' }
   genResult.value = ''
+  genMode.value = 'edit'
   dialogVisible.value = true
 }
 
@@ -234,7 +310,10 @@ async function doGenerate() {
   try {
     const { data } = await api.post('/ai/script', genForm.value)
     genResult.value = data.content
+    // 生成完成自动切到预览，看排版好的分镜表
+    genMode.value = 'preview'
     if (data.degraded) ElMessage.warning('未配置 GLM Key，已返回模拟内容')
+    if (data.topicDrift) ElMessage.warning('本次生成疑似跑题，建议点「开始生成」重试一次')
   } finally {
     generating.value = false
   }
@@ -262,6 +341,39 @@ async function saveScript() {
   }
 }
 
+// AI 检索热点：拍摄条件 → 可拍热点 + 拍摄方案
+const matchQuery = ref('')
+const matching = ref(false)
+const matchVisible = ref(false)
+const matchResult = ref({ matches: [], note: '', degraded: false, hotDegraded: false, droppedCount: 0 })
+
+function feasibilityType(f) {
+  return { 高: 'success', 中: 'warning', 低: 'info' }[f] || 'info'
+}
+
+async function doMatch() {
+  const q = matchQuery.value.trim()
+  if (!q) return ElMessage.warning('先输入拍摄条件，比如「一个人在厦门能拍哪些热点」')
+  matching.value = true
+  try {
+    const { data } = await api.post('/ai/hot-match', {
+      query: q,
+      platform: platform.value || undefined,
+    })
+    matchResult.value = { matches: [], note: '', degraded: false, hotDegraded: false, droppedCount: 0, ...data }
+    matchVisible.value = true
+    if (data.degraded) ElMessage.warning('未配置 GLM Key，已返回模拟匹配结果')
+  } finally {
+    matching.value = false
+  }
+}
+
+// 从检索结果直接进入现有的脚本生成流程
+function generateFromMatch(m) {
+  matchVisible.value = false
+  generate(m.hot)
+}
+
 onMounted(async () => {
   load()
   loadTopics()
@@ -279,6 +391,46 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.match-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.mode-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.match-list {
+  max-height: 62vh;
+  overflow-y: auto;
+}
+.match-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.match-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.match-line {
+  font-size: 13px;
+  margin: 4px 0;
+}
+.match-shots {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.match-actions {
+  margin-top: 8px;
+  text-align: right;
 }
 .filters {
   margin: 14px 0;
