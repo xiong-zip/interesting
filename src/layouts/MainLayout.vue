@@ -129,7 +129,7 @@ import logoUrl from '../assets/logo.svg'
   transition: color 0.16s var(--ease);
 }
 .menu :deep(.el-menu-item:hover) {
-  background: #f3f7fd;
+  background: #f4f4f6;
   color: var(--ink-900);
 }
 .menu :deep(.el-menu-item:hover .el-icon) {

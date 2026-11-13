@@ -9,3 +9,4 @@ node_modules/
 .trae-html-share-packages/
 __pycache__/
 *.pyc
+.zcode/
