@@ -46,12 +46,12 @@ describe('orderSceneItems', () => {
     expect(orderSceneItems(items, edges).map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 
-  it('没有连线时按从上到下、从左到右排序', () => {
+  it('没有连线时保持数组顺序（新版显式顺序；旧数据保存时已按位置排好，两者等价）', () => {
     const items = [
       { id: 'right', position: { x: 100, y: 0 } },
       { id: 'down', position: { x: 0, y: 100 } },
       { id: 'origin', position: { x: 0, y: 0 } },
     ]
-    expect(orderSceneItems(items, []).map((i) => i.id)).toEqual(['origin', 'right', 'down'])
+    expect(orderSceneItems(items, []).map((i) => i.id)).toEqual(['right', 'down', 'origin'])
   })
 })

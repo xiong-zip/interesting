@@ -5,7 +5,7 @@
         ref="stageEl"
         class="stage"
         :class="transitionClass"
-        :style="{ aspectRatio: `${planSize.width} / ${planSize.height}` }"
+        :style="{ aspectRatio: `${planSize.width} / ${planSize.height}`, maxHeight: stageHeight }"
       >
         <video
           ref="videoEl"
@@ -91,8 +91,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api'
 import { subtitleFontCss } from '../../utils/subtitleFont'
 
-const props = defineProps({ projectId: [Number, String] })
-const emit = defineEmits(['update-shot', 'update-subtitle-style'])
+const props = defineProps({
+  projectId: [Number, String],
+  // 舞台最大高度：弹窗用默认 52vh，常驻底部面板传更小的值
+  stageHeight: { type: String, default: '52vh' },
+})
+const emit = defineEmits(['update-shot', 'update-subtitle-style', 'duration'])
 
 const FILTERS = {
   清透自然: 'saturate(1.15) contrast(1.05)',
@@ -353,6 +357,8 @@ onMounted(async () => {
       return clip
     })
     totalDuration.value = cursor
+    // 把合计时长报给宿主（故事线头部展示）
+    emit('duration', Math.round(cursor * 10) / 10)
     // 同一首配乐在连续镜头里接续播放：记下每个镜头开始时音乐已经放到哪
     const musicCursor = new Map()
     for (const c of clips.value) {

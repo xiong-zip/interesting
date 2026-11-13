@@ -22,7 +22,7 @@
           ><el-icon><Document /></el-icon><span>脚本管理</span></el-menu-item
         >
         <el-menu-item index="/canvas"
-          ><el-icon><Grid /></el-icon><span>剧情画布</span></el-menu-item
+          ><el-icon><Grid /></el-icon><span>故事线</span></el-menu-item
         >
         <el-menu-item index="/music"
           ><el-icon><Headset /></el-icon><span>音乐库</span></el-menu-item

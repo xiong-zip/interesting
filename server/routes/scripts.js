@@ -155,27 +155,23 @@ function materializeCanvas(script, projectId, { createEmpty = false } = {}) {
   const proj = db.prepare('SELECT canvas FROM projects WHERE id = ?').get(pid)
   const canvas = typeof proj.canvas === 'string' ? JSON.parse(proj.canvas || '{}') : proj.canvas || {}
   const nodes = canvas.nodes || []
-  const edges = canvas.edges || []
+  const storyline = Array.isArray(canvas.storyline) ? canvas.storyline : []
   const seq = Date.now()
   const ids = shots.map((_, i) => `s${seq}_${i}`)
 
-  // 放在已有内容右侧，横向流程图布局：从左到右依次排列
-  const baseY = nodes.length ? Math.max(...nodes.map((n) => n.position.y)) + 240 : 0
-  const baseX = nodes.length ? Math.max(...nodes.map((n) => n.position.x)) + 320 : 0
+  // 追加到故事线末尾（显式顺序），不再生成连线
   shots.forEach((s, i) => {
     nodes.push({
       id: ids[i],
       type: 'plot',
-      position: { x: baseX + i * 300, y: baseY },
+      position: { x: 0, y: 0 },
       data: { title: `${s.title} · ${script.title.slice(0, 12)}`, content: s.content, scriptId: script.id },
     })
+    storyline.push(ids[i])
   })
-  for (let i = 0; i < ids.length - 1; i++) {
-    edges.push({ id: `e${seq}_${i}`, source: ids[i], target: ids[i + 1], animated: true })
-  }
 
   db.prepare("UPDATE projects SET canvas = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(
-    JSON.stringify({ nodes, edges }),
+    JSON.stringify({ nodes, storyline, subtitleStyle: canvas.subtitleStyle || {} }),
     pid,
   )
   // 回写关联，脚本列表能显示所属项目，删脚本时也能找到对应画布

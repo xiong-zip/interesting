@@ -4,8 +4,14 @@ const { exportDraft } = require('../jianying/cli')
 const { buildPlan } = require('../jianying/build-plan')
 const { snapshotProject, listVersions, hashCanvas } = require('../versions')
 const { archiveProject } = require('../backup')
+const { deriveStoryline } = require('../storyline')
+const { resolveAIConfig } = require('../ai-config')
 
 const router = express.Router()
+
+function getSetting(key) {
+  return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value
+}
 
 router.get('/list', (req, res) => {
   const rows = db
@@ -211,14 +217,11 @@ router.post('/:id/auto-plan', async (req, res) => {
     .map((n) => (n.data?.content || '').trim())
     .filter(Boolean)
   const topic = (req.body?.topic || project.name || '').trim()
-  const key = db.prepare("SELECT value FROM settings WHERE key = 'glm_api_key'").get()?.value || process.env.GLM_API_KEY
-  const model =
-    db.prepare("SELECT value FROM settings WHERE key = 'glm_model'").get()?.value ||
-    process.env.GLM_MODEL ||
-    'glm-4-flash'
+  // 走统一的 AI 服务商配置（智谱/DeepSeek 可切），不再写死智谱地址
+  const cfg = resolveAIConfig(getSetting)
 
   let shots = []
-  if (key) {
+  if (cfg.key) {
     try {
       const prompt = [
         `你是短视频分镜师。主题「${topic}」。请从下列素材中挑选并排序，写成分镜表。`,
@@ -229,11 +232,11 @@ router.post('/:id/auto-plan', async (req, res) => {
       ]
         .filter(Boolean)
         .join('\n')
-      const resp = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+      const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
         body: JSON.stringify({
-          model,
+          model: cfg.model,
           messages: [
             { role: 'system', content: '你是专业短视频分镜师，只输出 JSON。' },
             { role: 'user', content: prompt },
@@ -261,7 +264,7 @@ router.post('/:id/auto-plan', async (req, res) => {
 
   const used = new Set()
   const nodes = []
-  const edges = []
+  const storyline = []
   shots.forEach((shot, i) => {
     const hint = String(shot.material || '')
     let video = videos.find(
@@ -276,24 +279,35 @@ router.post('/:id/auto-plan', async (req, res) => {
     nodes.push({
       id: pid,
       type: 'plot',
-      position: { x: i * 560, y: 0 },
+      position: { x: 0, y: i * 160 },
       data: { title: `镜头 ${i + 1}`, content: String(shot.subtitle || '').slice(0, 200) },
     })
     nodes.push({
       id: vid,
       type: 'video',
-      position: { x: i * 560 + 260, y: 0 },
+      position: { x: 0, y: i * 160 },
       data: { mediaId: video.id, filename: video.filename, note: video.note || '' },
     })
-    edges.push({ id: `auto-e-${i}-p`, source: pid, target: vid, animated: true })
-    if (i > 0) edges.push({ id: `auto-e-${i}-c`, source: `auto-v-${i - 1}`, target: pid, animated: true })
+    storyline.push(pid, vid)
   })
 
+  // 显式故事线写入；subtitleStyle 不再被覆盖清空
   db.prepare("UPDATE projects SET canvas = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(
-    JSON.stringify({ nodes, edges }),
+    JSON.stringify({ nodes, storyline, subtitleStyle: canvas.subtitleStyle || {} }),
     req.params.id,
   )
-  res.json({ ok: true, added: nodes.filter((n) => n.type === 'video').length, ai: !!key })
+  res.json({ ok: true, added: nodes.filter((n) => n.type === 'video').length, ai: !!cfg.key })
+})
+
+// 旧画布迁移用：按现有连线/位置逻辑派生显式故事线（前端加载旧项目时调一次）
+router.get('/:id/storyline', (req, res) => {
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id)
+  if (!project) return res.status(404).json({ error: '项目不存在' })
+  const canvas = typeof project.canvas === 'string' ? JSON.parse(project.canvas || '{}') : project.canvas || {}
+  if (Array.isArray(canvas.storyline) && canvas.storyline.length) {
+    return res.json({ storyline: canvas.storyline, migrated: true })
+  }
+  res.json({ storyline: deriveStoryline(canvas.nodes || [], canvas.edges || []), migrated: false })
 })
 
 module.exports = router

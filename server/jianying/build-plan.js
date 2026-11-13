@@ -3,6 +3,8 @@ const path = require('path')
 const fs = require('fs')
 const db = require('../db')
 const { parseLrcFile } = require('./lrc')
+// 顺序逻辑抽到 server/storyline.js（显式故事线优先），此处复用并对外保持兼容导出
+const { orderNodes, orderSceneItems } = require('../storyline')
 
 // 剪映专业版草稿目录（可由设置项 jianying_draft_dir 或环境变量覆盖）
 function draftDir() {
@@ -14,75 +16,10 @@ function draftDir() {
   return dir
 }
 
-// 沿连线把节点排成故事线；孤立节点按画布位置补到后面
-function orderNodes(nodes, edges) {
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const next = new Map()
-  const indeg = new Map(nodes.map((n) => [n.id, 0]))
-  for (const e of edges || []) {
-    if (!byId.has(e.source) || !byId.has(e.target)) continue
-    if (!next.has(e.source)) next.set(e.source, [])
-    next.get(e.source).push(e.target)
-    indeg.set(e.target, (indeg.get(e.target) || 0) + 1)
-  }
-  const posKey = (n) => (n?.position?.x || 0) * 10000 + (n?.position?.y || 0)
-  const sortByPos = (a, b) => posKey(byId.get(a)) - posKey(byId.get(b))
-  const seen = new Set()
-  const ordered = []
-  const walk = (node) => {
-    if (!node || seen.has(node.id)) return
-    seen.add(node.id)
-    ordered.push(node)
-    for (const id of (next.get(node.id) || []).sort(sortByPos)) walk(byId.get(id))
-  }
-  nodes
-    .filter((n) => (indeg.get(n.id) || 0) === 0)
-    .sort((a, b) => posKey(a) - posKey(b))
-    .forEach(walk)
-  nodes
-    .filter((n) => !seen.has(n.id))
-    .sort((a, b) => posKey(a) - posKey(b))
-    .forEach(walk)
-  return ordered
-}
-
 function stamp() {
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
-}
-
-// 集成节点内部的卡片顺序：有连线就沿连线走，没连线的按位置（从上到下、从左到右）补到后面
-function orderSceneItems(items, edges) {
-  const list = items.map((it, i) => ({ it, id: it?.id || `#${i}` }))
-  const byId = new Map(list.map((x) => [x.id, x.it]))
-  const next = new Map()
-  const indeg = new Map(list.map((x) => [x.id, 0]))
-  for (const e of edges || []) {
-    if (!byId.has(e.source) || !byId.has(e.target) || e.source === e.target) continue
-    if (!next.has(e.source)) next.set(e.source, [])
-    next.get(e.source).push(e.target)
-    indeg.set(e.target, (indeg.get(e.target) || 0) + 1)
-  }
-  const posKey = (it) => (it?.position?.y || 0) * 10000 + (it?.position?.x || 0)
-  const seen = new Set()
-  const ordered = []
-  const walk = (id) => {
-    if (!id || seen.has(id) || !byId.has(id)) return
-    seen.add(id)
-    ordered.push(byId.get(id))
-    for (const c of (next.get(id) || []).sort((a, b) => posKey(byId.get(a)) - posKey(byId.get(b)))) walk(c)
-  }
-  list
-    .filter((x) => (indeg.get(x.id) || 0) === 0 && (next.get(x.id) || []).length > 0)
-    .sort((a, b) => posKey(a.it) - posKey(b.it))
-    .forEach((x) => walk(x.id))
-  // 没连线的卡片、以及成环走不到的卡片，按位置补在最后
-  list
-    .filter((x) => !seen.has(x.id))
-    .sort((a, b) => posKey(a.it) - posKey(b.it))
-    .forEach((x) => walk(x.id))
-  return ordered
 }
 
 // 素材 id 可能因为「移除后重新扫描」变化，id 失效时按文件名兜底
@@ -103,7 +40,7 @@ function findMediaRow(mediaId, filename) {
 function buildPlan(project) {
   const canvas = JSON.parse(project.canvas || '{}')
   const nodes = canvas.nodes || []
-  const ordered = orderNodes(nodes, canvas.edges)
+  const ordered = orderNodes(nodes, canvas.edges, canvas.storyline)
 
   // 全片字幕样式：字幕文字写在镜头里，字体 / 字号 / 位置由画布统一指定
   const rawStyle = canvas.subtitleStyle || {}
@@ -177,14 +114,26 @@ function buildPlan(project) {
 
   for (const node of ordered) {
     if (node.type === 'video') {
-      // 该镜头之后的转场：取从该视频节点出发的第一条连线上的设置
-      pushClip(node.data, (canvas.edges || []).find((e) => e.source === node.id)?.data, node.id)
+      // 转场（作用于该镜头之后）：优先读卡片自身 data（故事线模式），旧画布回退读连线
+      const edgeData = (canvas.edges || []).find((e) => e.source === node.id)?.data
+      const hasOwn = node.data?.transition != null || node.data?.transitionDuration != null
+      pushClip(
+        node.data,
+        hasOwn
+          ? { transition: node.data.transition || '', transitionDuration: node.data.transitionDuration ?? null }
+          : edgeData,
+        node.id,
+      )
     } else if (node.type === 'scene') {
       const outEdge = (canvas.edges || []).find((e) => e.source === node.id)
+      const hasOwn = node.data?.transition != null || node.data?.transitionDuration != null
+      const tailTrans = hasOwn
+        ? { transition: node.data.transition || '', transitionDuration: node.data.transitionDuration ?? null }
+        : outEdge?.data
       const items = orderSceneItems(Array.isArray(node.data?.items) ? node.data.items : [], node.data?.edges)
       const lastVideoIndex = items.map((it) => it.kind).lastIndexOf('video')
       items.forEach((it, index) => {
-        if (it.kind === 'video') pushClip(it, index === lastVideoIndex ? outEdge?.data : null)
+        if (it.kind === 'video') pushClip(it, index === lastVideoIndex ? tailTrans : null)
         else if (it.kind === 'audio') useMusic(it.musicId, it.volume)
         else if (it.kind === 'subtitle') {
           const text = String(it.text || '').trim()

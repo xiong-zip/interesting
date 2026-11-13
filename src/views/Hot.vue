@@ -88,6 +88,27 @@
       </el-table-column>
     </el-table>
 
+    <!-- 热点生命周期：判断热点在起量还是在消退，比实时榜更有选题价值 -->
+    <div class="lifecycle">
+      <div class="lc-head">
+        <h3>📈 热点生命周期（近 {{ lifecycle.days }} 天 · 按峰值排序）</h3>
+        <span class="muted">每条曲线 = 一个热点的热度走势；数据从启用采样起积累，每小时一个点，无法回溯更早</span>
+      </div>
+      <div v-if="lifecycle.items.length">
+        <div v-for="it in lifecycle.items" :key="it.key" class="lc-row">
+          <span class="lc-title" :title="it.title">{{ it.title }}</span>
+          <svg class="lc-svg" viewBox="0 0 200 36" preserveAspectRatio="none">
+            <polyline :points="sparkPoints(it.samples)" fill="none" stroke="currentColor" stroke-width="2" />
+          </svg>
+          <span class="lc-peak">峰值 {{ fmtHot(it.hotPeak) }}</span>
+          <span class="lc-n">{{ it.samples.length }} 个采样点</span>
+        </div>
+      </div>
+      <div v-else class="muted lc-empty">
+        还没有采样数据：热榜抓取运行中会自动积累（每小时每条热点记一个点），过几个小时再来看
+      </div>
+    </div>
+
     <!-- AI 生成对话框 -->
     <el-dialog v-model="dialogVisible" title="AI 生成脚本" width="720px" top="5vh">
       <el-form label-width="90px">
@@ -269,6 +290,33 @@ async function load() {
     loading.value = false
   }
 }
+
+/* 热点生命周期 */
+const lifecycle = ref({ days: 7, items: [] })
+async function loadLifecycle() {
+  try {
+    const { data } = await api.get('/hot/lifecycle', { params: { days: 7 } })
+    lifecycle.value = data
+  } catch {
+    /* 生命周期接口异常不影响热榜 */
+  }
+}
+// 样本序列 → SVG 折线坐标（热度归一化到 36px 高度）
+function sparkPoints(samples) {
+  if (!samples?.length) return ''
+  if (samples.length === 1) return '0,18 200,18'
+  const hs = samples.map((s) => s.hot)
+  const min = Math.min(...hs)
+  const max = Math.max(...hs)
+  const span = max - min || 1
+  return samples
+    .map((s, i) => {
+      const x = (i / (samples.length - 1)) * 200
+      const y = 30 - ((s.hot - min) / span) * 26
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+}
 async function refresh() {
   loading.value = true
   try {
@@ -297,9 +345,12 @@ const generating = ref(false)
 const genResult = ref('')
 const genMode = ref('edit')
 const genForm = ref({ hotTitle: '', topic: '', style: '口语化、有网感', duration: '60秒' })
+// 记住这条脚本来自哪个热点：保存时没进选题池的自动入池并关联
+const genRow = ref(null)
 
 function generate(row) {
   genForm.value = { hotTitle: row.title, topic: '', style: '口语化、有网感', duration: '60秒' }
+  genRow.value = row
   genResult.value = ''
   genMode.value = 'edit'
   dialogVisible.value = true
@@ -321,8 +372,24 @@ async function doGenerate() {
 
 async function saveScript() {
   const title = genForm.value.hotTitle.slice(0, 50)
-  const topic = topicByTitle.value.get(genForm.value.hotTitle)
-  // 来自选题池的，建脚本时就把选题带上，两边关联一次建好
+  // 生成脚本即「决定要做」：热点不在选题池的，保存时自动入池，脚本关联一次建好
+  let topic = topicByTitle.value.get(genForm.value.hotTitle)
+  let autoPooled = false
+  if (!topic && genRow.value) {
+    const row = genRow.value
+    const { data } = await api.post('/topics', {
+      title: row.title,
+      url: row.url,
+      platform: row.platform,
+      platforms: (row.platforms || []).map((p) => p.key).join(','),
+      hotFirst: row.hotFirst || row.hot,
+      hotPeak: row.hotPeak || row.hot,
+      firstSeenAt: row.firstSeen,
+    })
+    topic = { id: data.id }
+    autoPooled = !data.existed
+    await loadTopics()
+  }
   const { data: saved } = await api.post('/scripts', {
     title,
     content: genResult.value,
@@ -330,13 +397,15 @@ async function saveScript() {
     topicId: topic ? topic.id : null,
   })
   dialogVisible.value = false
-  // 分镜自动上画布：每个镜头一个节点，顺序连成故事线
+  // 分镜自动上画布：每个镜头一个节点，顺序追加进故事线
   const { data: cv } = await api.post(`/scripts/${saved.id}/to-canvas`, {})
   if (cv.added > 0) {
-    ElMessage.success(`脚本已保存，${cv.added} 个分镜已生成画布`)
+    ElMessage.success(
+      `脚本已保存${autoPooled ? '，热点已加入选题池并关联' : ''}，${cv.added} 个分镜已追加到故事线`,
+    )
     router.push(`/canvas/${cv.projectId}`)
   } else {
-    ElMessage.success('脚本已保存（未解析到分镜结构，可在画布手动梳理）')
+    ElMessage.success(`脚本已保存${autoPooled ? '，热点已加入选题池并关联' : ''}（未解析到分镜结构，可在脚本管理查看）`)
     router.push('/scripts')
   }
 }
@@ -377,6 +446,7 @@ function generateFromMatch(m) {
 onMounted(async () => {
   load()
   loadTopics()
+  loadLifecycle()
   try {
     const { data } = await api.get('/hot/platforms')
     platforms.value = data
@@ -452,5 +522,50 @@ onMounted(async () => {
 .title-link {
   color: var(--el-color-primary);
   text-decoration: none;
+}
+.lifecycle {
+  margin: 18px 0 8px;
+}
+.lc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.lc-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.lc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line-soft);
+  font-size: 13px;
+  color: var(--ink-900);
+}
+.lc-title {
+  flex: 1;
+  min-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lc-svg {
+  width: 200px;
+  height: 36px;
+  flex: none;
+}
+.lc-peak {
+  flex: none;
+  font-weight: 600;
+}
+.lc-n {
+  flex: none;
+}
+.lc-empty {
+  padding: 10px 0;
 }
 </style>

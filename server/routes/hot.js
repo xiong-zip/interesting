@@ -32,6 +32,10 @@ const upsertHistory = db.prepare(`
     hot_peak = MAX(hot_peak, excluded.hot_peak),
     platforms = excluded.platforms
 `)
+const insertSample = db.prepare(
+  "INSERT INTO hot_samples (key, hot, seen_at) VALUES (?, ?, datetime('now','localtime'))",
+)
+const sampleLastAt = new Map()
 const recordHistory = db.transaction((items) => {
   for (const it of items) {
     const key = normalizeTitle(it.title)
@@ -45,6 +49,12 @@ const recordHistory = db.transaction((items) => {
     )
     platforms.add(it.platform)
     upsertHistory.run(key, it.title, prev?.hot_first ?? hot, hot, [...platforms].join(','))
+    // 生命周期采样：每 key 每小时最多一条，避免 3 分钟一轮把表刷爆
+    const last = sampleLastAt.get(key)
+    if (!last || Date.now() - last > 60 * 60 * 1000) {
+      insertSample.run(key, hot)
+      sampleLastAt.set(key, Date.now())
+    }
   }
 })
 
@@ -305,6 +315,38 @@ router.post('/open', (req, res) => {
   if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: '链接不合法' })
   spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, windowsHide: true }).unref()
   res.json({ ok: true })
+})
+
+// 热点生命周期：近 N 天有采样记录的热点按峰值排序，返回各自的热度序列
+// 用于判断一条热点是正在起量还是已经在消退，比实时榜更有选题价值
+router.get('/lifecycle', (req, res) => {
+  const days = Math.min(30, Math.max(1, Number(req.query.days) || 7))
+  const rows = db
+    .prepare(
+      `SELECT hs.key, hs.hot, hs.seen_at, hh.title, hh.hot_peak, hh.first_seen_at, hh.platforms
+       FROM hot_samples hs JOIN hot_history hh ON hh.key = hs.key
+       WHERE hs.seen_at >= datetime('now', 'localtime', ?)
+       ORDER BY hs.key, hs.seen_at`,
+    )
+    .all(`-${days} days`)
+  const byKey = new Map()
+  for (const r of rows) {
+    let g = byKey.get(r.key)
+    if (!g) {
+      g = {
+        key: r.key,
+        title: r.title,
+        hotPeak: Number(r.hot_peak) || 0,
+        firstSeen: r.first_seen_at || '',
+        platforms: r.platforms || '',
+        samples: [],
+      }
+      byKey.set(r.key, g)
+    }
+    g.samples.push({ hot: Number(r.hot) || 0, at: r.seen_at })
+  }
+  const items = [...byKey.values()].sort((a, b) => b.hotPeak - a.hotPeak).slice(0, 8)
+  res.json({ days, items, note: '采样自启用时开始积累，每小时每条热点最多记一个点' })
 })
 
 module.exports = router

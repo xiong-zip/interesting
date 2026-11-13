@@ -85,6 +85,16 @@ CREATE TABLE IF NOT EXISTS hot_history (
   platforms TEXT DEFAULT ''
 );
 
+-- 热点生命周期采样：每次抓榜按 key 记一条热度样本（每小时每 key 最多一条），
+-- 用来画「首见 → 峰值 → 消退」曲线；数据从启用时开始积累，不回溯历史
+CREATE TABLE IF NOT EXISTS hot_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  hot INTEGER DEFAULT 0,
+  seen_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_hot_samples_key ON hot_samples(key, seen_at);
+
 -- 画布版本：自动保存时按内容哈希去重，支持手动快照与恢复
 CREATE TABLE IF NOT EXISTS project_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
