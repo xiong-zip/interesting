@@ -22,21 +22,49 @@
         <el-button size="small" @click="addNode('video')">＋镜头</el-button>
         <el-button size="small" @click="addNode('scene')">＋集成</el-button>
         <el-button size="small" @click="togglePalette">素材面板</el-button>
-        <el-button size="small" @click="addNode('hot')">＋热点</el-button>
       </el-button-group>
       <el-button v-if="projectId" size="small" @click="organize">⚡ 一键整理</el-button>
+      <el-button
+        v-if="projectId"
+        size="small"
+        :disabled="!undoStack.length"
+        title="Ctrl+Z"
+        @click="undo"
+        >↩ 撤销</el-button
+      >
+      <el-button
+        v-if="projectId"
+        size="small"
+        :disabled="!redoStack.length"
+        title="Ctrl+Shift+Z"
+        @click="redo"
+        >↪ 重做</el-button
+      >
       <el-button v-if="projectId" size="small" @click="toggleTextSummary">{{
         showTextSummary ? '📝 摘要开' : '📝 摘要关'
       }}</el-button>
       <el-button v-if="projectId" size="small" @click="kbVisible = true">⌨️ 快捷键</el-button>
       <el-button v-if="projectId" size="small" @click="openSubtitleStyle">🎨 字幕样式</el-button>
       <el-button v-if="projectId" size="small" @click="openVersions">🕘 历史</el-button>
-      <el-button v-if="projectId" type="primary" size="small" :loading="saving" @click="save">
-        保存{{ dirty ? ' *' : '' }}
-      </el-button>
-      <el-button v-if="projectId" size="small" :loading="autoPlanning" @click="autoPlan">🤖 自动编排</el-button>
+      <span v-if="projectId" class="save-state">
+        {{ saving ? '保存中…' : dirty ? '未保存，稍后自动存' : '已自动保存' }}
+      </span>
+      <el-dropdown v-if="projectId" @command="(cmd) => cmd === 'autoPlan' && autoPlan()">
+        <el-button size="small" :loading="autoPlanning">更多 ▾</el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="autoPlan">🤖 自动编排（按素材库覆盖重建）</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
       <el-button v-if="projectId" size="small" @click="aiFromCanvas">AI 生成脚本</el-button>
-      <el-button v-if="projectId" size="small" :loading="exporting" @click="exportJianying">导出剪映草稿</el-button>
+      <el-button
+        v-if="projectId"
+        size="small"
+        :loading="exporting || planLoading"
+        @click="openExportPlan"
+        >导出剪映草稿</el-button
+      >
       <el-button v-if="projectId" size="small" @click="timelinePreviewVisible = true">▶ 预览</el-button>
       <span class="tip">双击镜头节点填字幕 / 配乐并设置入点变速，剧情用剧情节点写，点击连线设置转场</span>
     </div>
@@ -356,6 +384,44 @@
         <el-button :disabled="!aiResult" @click="saveAiScript">保存为脚本</el-button>
       </template>
     </el-dialog>
+    <!-- 导出前确认：故事线顺序与冲突一目了然 -->
+    <el-dialog v-model="planVisible" title="导出前确认 · 故事线顺序" width="720px" top="6vh">
+      <template v-if="planInfo">
+        <el-alert
+          v-if="planInfo.skipped?.length"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="`${planInfo.skipped.length} 个素材文件未找到，导出将跳过：${planInfo.skipped.join('、')}`"
+          style="margin-bottom: 10px"
+        />
+        <el-alert :type="planInfo.clips?.length ? 'info' : 'error'" :closable="false" show-icon :title="bgmNote" style="margin-bottom: 10px" />
+        <el-table v-if="planInfo.clips?.length" :data="planInfo.clips" size="small" max-height="360">
+          <el-table-column type="index" label="#" width="46" />
+          <el-table-column prop="filename" label="素材" min-width="220" show-overflow-tooltip />
+          <el-table-column label="字幕" width="70">
+            <template #default="{ row }">{{ row.subtitles?.length ? `${row.subtitles.length} 条` : '—' }}</template>
+          </el-table-column>
+          <el-table-column label="转场" width="100">
+            <template #default="{ row }">{{ row.transition || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="配乐" width="90">
+            <template #default="{ row }">{{ row.bgm ? '镜头配乐' : '—' }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="没有可导出的镜头：请先把素材挂到镜头节点并连线" />
+        <div class="muted plan-note">
+          顺序 = 连线先后；未连线的节点按画布位置排在最后。上表顺序即导出到剪映的顺序。
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="planVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!planInfo?.clips?.length" @click="exportJianying">
+          确认并导出
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 镜头：双击打开，左侧播放视频，右侧是功能操作 -->
     <el-dialog
       v-model="inspectorVisible"
@@ -674,6 +740,7 @@ function topoLayout(ids, edges, colW, rowH, pad = 0) {
 // 一键整理：按连线方向和关系排版
 function organize() {
   if (!nodes.value.length) return
+  pushHistory()
   const posMap = topoLayout(
     nodes.value.map((n) => n.id),
     edges.value,
@@ -719,6 +786,51 @@ function markDirty() {
   saveTimer = setTimeout(() => save(true), 2000) // 自动保存
 }
 
+// ---- 撤销 / 重做：改动前压一份 nodes/edges 快照，Ctrl+Z / Ctrl+Shift+Z 或工具栏按钮恢复 ----
+const undoStack = ref([])
+const redoStack = ref([])
+const HISTORY_MAX = 50
+let restoringHistory = false
+let lastPushAt = 0
+
+function snapshotCanvas() {
+  const clean = (list) => list.map(({ selected, dragging, resizing, ...rest }) => rest)
+  return JSON.stringify({ nodes: clean(nodes.value), edges: clean(edges.value) })
+}
+
+// 连续微操作（如按住方向键）400ms 内合并为一条历史，避免快照栈被一次连按刷穿
+function pushHistory() {
+  if (restoringHistory || !canvasLoaded) return
+  const now = Date.now()
+  if (now - lastPushAt < 400) return
+  lastPushAt = now
+  undoStack.value.push(snapshotCanvas())
+  if (undoStack.value.length > HISTORY_MAX) undoStack.value.shift()
+  redoStack.value = []
+}
+
+function applyHistory(snapshot) {
+  const snap = JSON.parse(snapshot)
+  restoringHistory = true
+  nodes.value = snap.nodes
+  edges.value = snap.edges
+  restoringHistory = false
+  selectedIds.clear()
+  markDirty()
+}
+
+function undo() {
+  if (!undoStack.value.length) return
+  redoStack.value.push(snapshotCanvas())
+  applyHistory(undoStack.value.pop())
+}
+
+function redo() {
+  if (!redoStack.value.length) return
+  undoStack.value.push(snapshotCanvas())
+  applyHistory(redoStack.value.pop())
+}
+
 // 拖拽连线：把新连接写入 edges（记下从哪个手柄拉出来的，刷新后线才不会跳回默认锚点）
 function onConnect(params) {
   if (!params?.source || !params.target || params.source === params.target) return
@@ -730,6 +842,7 @@ function onConnect(params) {
       e.targetHandle === (params.targetHandle ?? null),
   )
   if (!exists) {
+    pushHistory()
     edges.value.push({
       id: `e${params.source}-${params.target}-${Date.now()}`,
       source: params.source,
@@ -747,6 +860,7 @@ function onEdgeUpdate({ edge, connection }) {
   if (!edge?.id || !connection?.source || !connection?.target) return
   const updated = updateEdge(edge, connection)
   if (!updated) return
+  pushHistory()
   markDirty()
 }
 
@@ -966,6 +1080,7 @@ function appendSceneItem(sceneId, payload) {
   ElMessage.success('已加入集成节点')
 }
 function onDropToScene({ id, payload }) {
+  pushHistory()
   appendSceneItem(id, payload)
 }
 function onCanvasDrop(e) {
@@ -978,6 +1093,7 @@ function onCanvasDrop(e) {
     return
   }
   const pos = screenToFlowCoordinate({ x: e.clientX, y: e.clientY })
+  pushHistory()
   if (payload.kind === 'video') {
     nodes.value.push({
       id: `n${++nodeSeq}`,
@@ -1015,6 +1131,7 @@ function onNodeDoubleClickEvent({ node }) {
 }
 // 把画布上的剧情/素材/音乐/字幕节点拖进集成节点
 function onNodeDragStop({ node }) {
+  pushHistory() // 位置拖动也要能撤销；随后若被吸进集成节点，同一份快照覆盖两种结果
   if (!['plot', 'video', 'audio', 'subtitle'].includes(node.type)) return
   const drag = nodes.value.find((n) => n.id === node.id)
   if (!drag) return
@@ -1173,6 +1290,7 @@ function removeBoardItem(id) {
   sceneBoardEdges.value = sceneBoardEdges.value.filter((e) => e.source !== id && e.target !== id)
 }
 function saveBoard() {
+  pushHistory()
   // 卡片 id、位置和连线都要存下来：导出顺序由连线决定，没连线的卡片回退到位置顺序
   const items = [...sceneBoardNodes.value]
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
@@ -1308,6 +1426,9 @@ async function restoreVersion(row) {
   } catch {
     return
   }
+  // 版本恢复是跨快照的大跳变，清空撤销栈避免撤回到半新半旧的状态
+  undoStack.value = []
+  redoStack.value = []
   // 先把本地未保存的改动推上去，保证服务端留的「恢复前」快照就是眼前的内容
   await save(true)
   await api.post(`/projects/${projectId.value}/versions/${row.id}/restore`)
@@ -1454,6 +1575,7 @@ async function deleteEdge() {
   } catch {
     return
   }
+  pushHistory()
   edges.value = edges.value.filter((e) => e.id !== id)
   panelVisible.value = false
   markDirty()
@@ -1461,6 +1583,7 @@ async function deleteEdge() {
 }
 
 function applyPanel() {
+  pushHistory()
   if (panelType.value === 'audio') {
     const volume = audioForm.value.volume
     nodes.value = nodes.value.map((n) => (n.id === editingNodeId.value ? { ...n, data: { ...n.data, volume } } : n))
@@ -1477,6 +1600,7 @@ function applyPanel() {
 }
 
 function applyInspector() {
+  pushHistory()
   const f = nodeForm.value
   const music = f.musicId != null ? musicFiles.value.find((m) => m.id === f.musicId) : null
   nodes.value = nodes.value.map((n) =>
@@ -1511,6 +1635,7 @@ function moveSelected(dx, dy) {
   nodes.value = nodes.value.map((n) =>
     selectedIds.has(n.id) ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n,
   )
+  pushHistory()
   markDirty()
 }
 
@@ -1523,6 +1648,7 @@ async function confirmDeleteNode(id) {
     confirmButtonText: '删除',
     cancelButtonText: '取消',
   })
+  pushHistory()
   nodes.value = nodes.value.filter((n) => n.id !== id)
   edges.value = edges.value.filter((e) => e.source !== id && e.target !== id)
   selectedIds.delete(id)
@@ -1546,12 +1672,21 @@ function onKeydown(e) {
     hotPickVisible.value ||
     boardVisible.value ||
     aiVisible.value ||
-    inspectorVisible.value
+    inspectorVisible.value ||
+    planVisible.value
   )
     return
   if (document.querySelector('.el-message-box')) return
   const tag = e.target?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
+
+  // 撤销 / 重做优先于自定义快捷键；输入框场景已在上面提前 return，走浏览器原生文本撤销
+  if ((e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
+    e.preventDefault()
+    if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
+    else undo()
+    return
+  }
 
   const key = e.key.toLowerCase()
   const step = e.shiftKey ? 100 : 20
@@ -1821,6 +1956,7 @@ function addNode(type) {
   if (type === 'video') return openVideoPick(center)
   if (type === 'audio') return openMusicPick(center)
   if (type === 'hot') return openHotPick(center)
+  pushHistory()
   nodes.value.push({
     id: `n${nodeSeq}`,
     type,
@@ -1940,6 +2076,7 @@ function openEdit(id) {
   editVisible.value = true
 }
 function confirmEdit() {
+  pushHistory()
   const node = nodes.value.find((n) => n.id === editForm.value.id)
   if (node) {
     const { id: _id, ...rest } = editForm.value
@@ -1950,6 +2087,7 @@ function confirmEdit() {
   markDirty()
 }
 function deleteNode() {
+  pushHistory()
   nodes.value = nodes.value.filter((n) => n.id !== editForm.value.id)
   edges.value = edges.value.filter((e) => e.source !== editForm.value.id && e.target !== editForm.value.id)
   editVisible.value = false
@@ -1963,8 +2101,15 @@ const aiResult = ref('')
 const aiMode = ref('edit')
 // 剧本素材：独立剧情节点 + 镜头节点里写的剧情，都算剧情笔记
 // 剧本素材只取独立剧情节点（镜头节点不再承载剧情文字）
+// 角色节点一并交给 AI：之前只在画布上当摆设，现在真正参与脚本生成
 function plotNotes() {
-  return nodes.value.filter((n) => n.type === 'plot').map((n) => `${n.data.title || '剧情'}：${n.data.content || ''}`)
+  const roles = nodes.value
+    .filter((n) => n.type === 'role' && `${n.data.title || ''}${n.data.content || ''}`.trim())
+    .map((n) => `【角色设定】${n.data.title || '角色'}：${n.data.content || ''}`)
+  const plots = nodes.value
+    .filter((n) => n.type === 'plot')
+    .map((n) => `${n.data.title || '剧情'}：${n.data.content || ''}`)
+  return [...roles, ...plots]
 }
 
 async function aiFromCanvas() {
@@ -2005,6 +2150,33 @@ function defaultDraftName() {
   return `${currentProjectName() || '未命名项目'}-${stamp}`
 }
 // 按画布故事线生成剪映草稿
+// 导出前确认：拉一次 preview-plan，把故事线顺序 / 跳过素材 / BGM 冲突显性化，隐藏规则不再静默
+const planVisible = ref(false)
+const planLoading = ref(false)
+const planInfo = ref(null)
+const bgmNote = computed(() => {
+  const p = planInfo.value
+  if (!p) return ''
+  const hasClipBgm = p.clips?.some((c) => c.bgm)
+  if (hasClipBgm && p.bgm) return '存在镜头配乐：本次导出全局 BGM 不生效（避免两轨同响）'
+  if (hasClipBgm) return '使用镜头自带配乐，无全局 BGM'
+  if (p.bgm) return '全局 BGM 已启用'
+  return '未配置任何 BGM（可在音乐库挂音乐节点，或后台管理设置全局 BGM）'
+})
+
+async function openExportPlan() {
+  if (!projectId.value) return
+  planLoading.value = true
+  try {
+    await save(true)
+    const { data } = await api.get(`/projects/${projectId.value}/preview-plan`)
+    planInfo.value = data
+    planVisible.value = true
+  } finally {
+    planLoading.value = false
+  }
+}
+
 async function exportJianying() {
   let draftName
   try {
@@ -2053,6 +2225,7 @@ async function autoPlan() {
   } catch {
     return
   }
+  pushHistory()
   await save(true)
   autoPlanning.value = true
   try {
@@ -2109,6 +2282,17 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 8px;
+}
+.save-state {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  margin: 0 4px;
+  white-space: nowrap;
+}
+.plan-note {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .canvas-body {
   flex: 1;
